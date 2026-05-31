@@ -305,6 +305,16 @@ export class CloudwatchAlarmAutoRcaStack extends cdk.Stack {
     feishuNotifierFn.addToRolePolicy(metricsPolicy);
     investigationEventHandlerFn.addToRolePolicy(metricsPolicy);
 
+    // Resource Groups Tagging API — FeishuNotifier reads a resource's tags to
+    // route the alarm to the correct Feishu group (tag-based routing, e.g.
+    // project=abc). tag:GetResources does not support resource-level scoping.
+    feishuNotifierFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['tag:GetResources'],
+        resources: ['*'],
+      })
+    );
+
     // DevOps Agent webhook secret — RCAAnalyzer 读取（HMAC 签名用）
     const webhookSecretName =
       props?.devopsAgentWebhookSecretName ?? 'cloudwatch-alarm-auto-rca/devops-agent-webhook';

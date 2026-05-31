@@ -4,6 +4,10 @@ import { formatFeishuMessages } from './card-formatter';
 import { routeWebhooks } from './webhook-router';
 import { sendToMultipleWebhooks, writeToDeadLetter } from './sender';
 import { CloudWatchClient, PutMetricDataCommand } from '@aws-sdk/client-cloudwatch';
+import {
+  ResourceGroupsTaggingAPIClient,
+  GetResourcesCommand,
+} from '@aws-sdk/client-resource-groups-tagging-api';
 
 // -----------------------------------------------------------------------------
 // Shared instances (reused across invocations)
@@ -47,6 +51,37 @@ async function emitMetrics(sentCount: number, failedCount: number): Promise<void
 }
 
 // -----------------------------------------------------------------------------
+// Resource tag lookup (for tag-based webhook routing)
+// -----------------------------------------------------------------------------
+
+/**
+ * Fetch a resource's AWS tags via the unified Resource Groups Tagging API.
+ * Works across all services whose ARN the alarm-router can build (EC2, RDS,
+ * Lambda, ELB, SQS, DynamoDB, S3, ECS, SNS). Region is parsed from the ARN.
+ * Any failure (empty ARN, untaggable resource, throttling) degrades to {} so
+ * routing falls back to namespace rules / catch-all instead of breaking.
+ */
+async function fetchResourceTags(resourceArn: string): Promise<Record<string, string>> {
+  if (!resourceArn) return {};
+  const region = resourceArn.split(':')[3] || process.env.AWS_REGION;
+  try {
+    const client = new ResourceGroupsTaggingAPIClient(region ? { region } : {});
+    const res = await client.send(new GetResourcesCommand({ ResourceARNList: [resourceArn] }));
+    const tags = res.ResourceTagMappingList?.[0]?.Tags ?? [];
+    return Object.fromEntries(tags.map((t) => [t.Key ?? '', t.Value ?? '']));
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        message: 'Failed to fetch resource tags for routing',
+        resourceArn,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+    return {};
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Lambda Handler
 // -----------------------------------------------------------------------------
 
@@ -69,14 +104,14 @@ export const handler = async (event: FeishuNotifierInput): Promise<FeishuNotifie
     // Use provided webhook URLs directly
     targetWebhookUrls = webhookUrls;
   } else {
-    // Route based on alarm namespace from the report
+    // Route based on alarm namespace + resource tags from the report
     const config = await configManager.getConfig();
-    const alarmNamespace =
-      rcaReport.alarmSummary.alarms.length > 0
-        ? rcaReport.alarmSummary.alarms[0].namespace
-        : '';
+    const firstAlarm =
+      rcaReport.alarmSummary.alarms.length > 0 ? rcaReport.alarmSummary.alarms[0] : undefined;
+    const alarmNamespace = firstAlarm?.namespace ?? '';
+    const alarmTags = await fetchResourceTags(firstAlarm?.resource ?? '');
 
-    targetWebhookUrls = routeWebhooks(alarmNamespace, {}, config.feishuWebhooks);
+    targetWebhookUrls = routeWebhooks(alarmNamespace, alarmTags, config.feishuWebhooks);
   }
 
   // 把报告渲染成飞书消息序列。短报告 → 1 条卡片；超长报告 → 1 条精简卡片 + 多条文本消息。
