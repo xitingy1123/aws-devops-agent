@@ -34,7 +34,7 @@ Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent
 ## Features
 
 - **Automatic alarm capture** — EventBridge rule catches every CloudWatch alarm state change
-- **Smart filtering** — `all` / `custom` selection mode, plus namespace / name pattern / tag rules
+- **Smart filtering** — `all` / `custom` selection mode, plus namespace / name pattern rules
 - **Alarm aggregation** — Multiple alarms on the same resource within 2 minutes are merged into one investigation
 - **Automated RCA** — Calls AWS DevOps Agent and produces a structured report
 - **Feishu notification** — Delivers RCA results as interactive cards, with multi-webhook routing
@@ -100,8 +100,7 @@ If you want to `@`-mention the bot inside Feishu and chat with DevOps Agent:
 5. **Credentials & Basic Info** → record **App ID** and **App Secret**
 6. **Events & Callbacks** → **Encryption strategy** → record the **Verification Token**
 7. Choose "Send events to a request URL" for event subscriptions, leave the URL **empty for now** (you'll fill it in after deploy)
-
-> 💡 After subscribing to `im.message.receive_v1` (Step 6 below, post-deploy), make sure **all three checkboxes** in that event's detail panel are enabled — by default only the group-chat one is checked, so direct messages won't reach the bot.
+8. **Events & Callbacks** → **Event Configuration** → "Add event" → pick **"Receive Message v2.0"** (`im.message.receive_v1`) → save.
 
 ### Step 2 — Collect AWS DevOps Agent info
 
@@ -185,7 +184,7 @@ Back on the Feishu Open Platform → **Events & Callbacks**. Configure both the 
 
 1. Subscription mode → Edit → "Send events to a request URL" → paste the URL above
 2. Feishu sends a verification request automatically (the Lambda answers the challenge)
-3. Add event `im.message.receive_v1`. Open its detail panel and **enable all three checkboxes** (group / direct / thread). Only the group-chat one is checked by default — without the direct-chat box, private messages never reach the bot.
+3. Add event `im.message.receive_v1`
 
 **B. Callback Configuration** (receives card button clicks)
 
@@ -265,7 +264,6 @@ Path: `/cloudwatch-alarm-auto-rca/config`
   "rcaTimeout": 300,                    // RCA timeout in seconds
   "retryPolicy": {"maxRetries": 3, "initialDelay": 5, "backoffMultiplier": 2},
   "groupingWindow": 120,                // alarm aggregation window in seconds
-  "enabledNamespaces": ["AWS/EC2", "AWS/RDS", "AWS/Lambda", "AWS/ECS"],
   "retentionDays": 90                   // record retention
 }
 ```
@@ -309,7 +307,6 @@ aws ssm put-parameter --region us-east-1 \
     "rcaTimeout":600,
     "retryPolicy":{"maxRetries":1,"initialDelay":5,"backoffMultiplier":2},
     "groupingWindow":120,
-    "enabledNamespaces":["AWS/EC2","AWS/RDS","AWS/Lambda","AWS/ECS"],
     "retentionDays":90
   }'
 ```
@@ -348,7 +345,6 @@ Each rule in `alarmFilters[]` has three fields: `type` / `value` / `action`.
 |---|---|---|
 | `namespace` | Exact match on alarm metric namespace | `"AWS/EC2"` |
 | `name_pattern` | **Regex** match on alarm name | `"^prod-.*"` |
-| `tag` | Tag of the alarmed resource (⚠️ not yet wired up: CloudWatch alarm event payloads don't carry resource tags, so alarm-router would need an extra `cloudwatch:ListTagsForResource` call to evaluate this — let me know if you need it) | `"env=production"` |
 
 | action | Behavior |
 |---|---|
@@ -397,7 +393,7 @@ Multi-turn conversation is supported — the bot keeps context.
 ```bash
 npm install            # Install deps
 npm run build          # Compile TypeScript
-npm test               # Run all tests (unit + property + integration)
+npm test               # Run all tests (40 suites / 390 cases)
 npm run test:unit      # Unit tests only
 npm run test:property  # Property tests only
 npm run synth          # Synth CloudFormation template

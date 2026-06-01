@@ -35,7 +35,7 @@
 ## 功能特性
 
 - **自动告警捕获**：EventBridge 规则自动捕获 CloudWatch 告警状态变化
-- **智能过滤**：支持 all/custom 告警选择模式，namespace/name_pattern/tag 过滤
+- **智能过滤**：支持 all/custom 告警选择模式，namespace/name_pattern 过滤
 - **告警聚合**：同一资源 2 分钟内的多个告警自动聚合为一次调查
 - **自动根因分析**：调用 AWS DevOps Agent 进行 RCA，生成结构化报告
 - **飞书通知**：RCA 结果以交互式卡片推送到飞书群，支持多 Webhook 路由
@@ -101,8 +101,7 @@
 5. **凭证与基础信息** → 记录 **App ID** 和 **App Secret**
 6. **事件与回调** → **加密策略** → 记录 **Verification Token**
 7. 事件订阅方式先选择「将事件发送至请求地址」，请求地址**先留空**（部署后回来填）
-
-> 💡 部署完订阅 `im.message.receive_v1` 事件后（步骤六），打开该事件的详情面板，**确保三个复选框都勾上**（群聊 / 单聊 / 话题）—— 默认只勾了群聊，单聊那个不勾的话私聊消息根本不会推过来。
+8. **事件与回调** → **事件配置** → 「添加事件」 → 选择 **「接收消息 v2.0」**（`im.message.receive_v1`）→ 保存。
 
 ### 步骤二：获取 AWS DevOps Agent 信息
 
@@ -192,7 +191,7 @@ FeishuBotWebhookUrl = https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/prod/
 
 1. 订阅方式 → 编辑 → 选择「将事件发送至请求地址」→ 填上面那个 URL
 2. 飞书会自动发验证请求（Lambda 自动响应 challenge）
-3. 添加事件 `im.message.receive_v1`
+3. **已添加事件** → 点「添加事件」→ 搜索并添加 `接收消息 v2.0`（`im.message.receive_v1`）—— 默认会要求开通两个权限：「读取用户发给机器人的单聊消息」和「获取群组中用户@机器人消息」，按提示开通即可
 
 
 **B. 回调配置**（接收卡片按钮的点击事件）
@@ -270,7 +269,6 @@ aws cloudwatch set-alarm-state \
   "rcaTimeout": 300,                    // RCA 超时（秒）
   "retryPolicy": {"maxRetries": 3, "initialDelay": 5, "backoffMultiplier": 2},
   "groupingWindow": 120,                // 告警聚合窗口（秒）
-  "enabledNamespaces": ["AWS/EC2", "AWS/RDS", "AWS/Lambda", "AWS/ECS"],
   "retentionDays": 90                   // 记录保留天数
 }
 ```
@@ -317,7 +315,6 @@ aws ssm put-parameter --region us-east-1 \
     "rcaTimeout":600,
     "retryPolicy":{"maxRetries":1,"initialDelay":5,"backoffMultiplier":2},
     "groupingWindow":120,
-    "enabledNamespaces":["AWS/EC2","AWS/RDS","AWS/Lambda","AWS/ECS"],
     "retentionDays":90
   }'
 ```
@@ -356,7 +353,6 @@ aws ssm put-parameter --region us-east-1 \
 |---|---|---|
 | `namespace` | 告警的指标 namespace **完全相等** | `"AWS/EC2"` |
 | `name_pattern` | 告警名按 **正则** 匹配 | `"^prod-.*"` |
-| `tag` | 告警资源的 tag(⚠️ 当前未实装：CloudWatch 告警事件 payload 不带资源 tag,需要在 alarm-router 里额外调 `cloudwatch:ListTagsForResource` 才能用——有需要告诉我加上) | `"env=production"` |
 
 | action | 行为 |
 |---|---|
@@ -406,11 +402,10 @@ aws logs tail /aws/lambda/<AlarmRouterFunction-name> \
 
 群里 @ 机器人发以下任一关键词（**整条消息就是这个词**，前后空格忽略，大小写无关）：
 
-| 中文 | 英文 |
-|---|---|
-| `改善计划` | `menu` |
-| `改进建议` | `help` |
-| `帮助` | `improvements` / `improvement` |
+- `改善计划`
+- `改进建议`
+- `improvements`
+- `improvement`
 
 例如：
 
@@ -439,12 +434,100 @@ aws logs tail /aws/lambda/<AlarmRouterFunction-name> \
 
 ---
 
+## 故障排查 / 调试
+
+### 飞书一直收不到 RCA 卡片
+
+按顺序检查：
+
+```bash
+# 1. 看 SSM 配置里 feishuWebhooks 不为空
+aws ssm get-parameter --region us-east-1 --name /cloudwatch-alarm-auto-rca/config \
+  --query 'Parameter.Value' --output text | jq .feishuWebhooks
+
+# 2. 看 FeishuNotifier 实际发送时飞书的响应（每次发送都会记录）
+aws logs tail /aws/lambda/<FeishuNotifierFunction-name> --region us-east-1 \
+  --since 30m --filter-pattern '"Feishu webhook response"'
+
+# 3. 手动 curl 一下 webhook，确认机器人本身没被踢出群
+curl -s -X POST "<your-webhook-url>" \
+  -H 'Content-Type: application/json' \
+  -d '{"msg_type":"text","content":{"text":"健康检查"}}'
+```
+
+`Feishu webhook response` 日志会显示飞书返回的完整 body（包括 `code` 和 `msg`）。如果 `code=0 msg=success` 但群里没收到，多半是机器人被移出群了。
+
+### 改了 SSM 配置但 Lambda 没立即生效
+
+ConfigManager 缓存 5 分钟。要立刻生效就强制 cold start（修改 Lambda 环境变量）：
+
+```bash
+ROUTER_FN=$(aws lambda list-functions --region us-east-1 \
+  --query "Functions[?starts_with(FunctionName, 'CloudwatchAlarmAutoRcaSta-AlarmRouter')].FunctionName | [0]" \
+  --output text)
+ENV_VARS=$(aws lambda get-function-configuration --region us-east-1 \
+  --function-name "$ROUTER_FN" --query 'Environment.Variables' --output json \
+  | jq --arg n "$(date +%s)" '. + {CONFIG_NONCE:$n}' \
+  | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
+aws lambda update-function-configuration --region us-east-1 \
+  --function-name "$ROUTER_FN" --environment "Variables={$ENV_VARS}"
+```
+
+> ⚠️ shell 单行 JSON 容易踩中文引号陷阱。改 SSM 配置时把 JSON 写到文件里，再用 `--value "$(cat config.json)"` 传，避免智能引号被复制进命令。
+
+### 看 Step Functions 走的具体路径
+
+execution 状态是 `SUCCEEDED` 不代表"飞书一定收到"——告警可能在 AlarmRouter 后被 filter 拦截走 `RecordFiltered` 路径，整条链路也是 SUCCEEDED 但飞书不会收到任何东西。
+
+```bash
+EXEC_ARN=$(aws stepfunctions list-executions \
+  --state-machine-arn arn:aws:states:us-east-1:<account>:stateMachine:AlarmRCAWorkflow... \
+  --max-results 1 --region us-east-1 --query 'executions[0].executionArn' --output text)
+aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN" --region us-east-1 \
+  --query 'events[?type==`PassStateEntered` || type==`TaskStateEntered`].stateEnteredEventDetails.name' \
+  --output text
+```
+
+- 完整路径：`InvokeAlarmRouter → InvokeAlarmGrouper → InvokeRCAAnalyzer → InvokeFeishuNotifierComplete → RecordSuccess`
+- 被 filter 拦截：`InvokeAlarmRouter → RecordFiltered`（秒级完成，飞书不会收到）
+
+---
+
+## 测试脚本
+
+`scripts/stress-tests/` 提供三种**真实压测脚本**，覆盖三个不同 AWS 服务，用真实指标流让告警自然进入 ALARM —— 不是 mock、不是 `set-alarm-state` 手动翻转、不是 `put-metric-data` 推假指标。
+
+| 脚本 | 服务 | 压测方式 | 触发的指标 |
+|---|---|---|---|
+| `01-ec2-cpu-stress.sh` | EC2 | 通过 SSM 在实例上跑 stress-ng 压满 CPU | `AWS/EC2 CPUUtilization` |
+| `02-lambda-errors-stress.sh` | Lambda | 部署一个会抛错的 Lambda，调用 3 次 | `AWS/Lambda Errors` |
+| `03-s3-4xx-stress.sh` | S3 | 反复 GET 不存在的 key 产生 NoSuchKey | `AWS/S3 4xxErrors` |
+
+```bash
+# EC2（直接跑，前提：账号下有 EC2-HighCPU-Test 告警 + 对应实例）
+./scripts/stress-tests/01-ec2-cpu-stress.sh 5     # 压 5 分钟
+
+# Lambda（先 setup 创建测试资源，再 stress，测完 cleanup）
+./scripts/stress-tests/02-lambda-errors-stress.sh setup
+./scripts/stress-tests/02-lambda-errors-stress.sh stress
+./scripts/stress-tests/02-lambda-errors-stress.sh cleanup
+
+# S3（同上，注意 Request Metrics 启用后有 ~15 分钟延迟）
+./scripts/stress-tests/03-s3-4xx-stress.sh setup
+./scripts/stress-tests/03-s3-4xx-stress.sh stress
+./scripts/stress-tests/03-s3-4xx-stress.sh cleanup
+```
+
+详细说明：[scripts/stress-tests/README.md](scripts/stress-tests/README.md)
+
+---
+
 ## 开发
 
 ```bash
 npm install          # 安装依赖
 npm run build        # 编译 TypeScript
-npm test             # 运行全部 292 个测试
+npm test             # 运行全部测试（40 套件 / 390 用例）
 npm run test:unit    # 仅单元测试
 npm run test:property # 仅属性测试
 npm run synth        # 生成 CloudFormation 模板
