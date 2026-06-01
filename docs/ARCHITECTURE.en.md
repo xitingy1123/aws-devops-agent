@@ -111,7 +111,10 @@ CloudWatch alarm → EventBridge → Step Functions (suspends, waits for callbac
 │       └── feishu-bot/               ← ⚠ Independent feature: Feishu chat bot, decoupled from RCA
 │
 ├── scripts/
-│   └── stress-cpu.sh                 ← Stress an EC2 instance's CPU to trigger an alarm (only RCA-related script)
+│   └── stress-tests/                 ← Real stress tests (EC2/Lambda/S3, trigger real alarm chains)
+│       ├── 01-ec2-cpu-stress.sh
+│       ├── 02-lambda-errors-stress.sh
+│       └── 03-s3-4xx-stress.sh
 │
 ├── test/
 │   ├── unit/                         ← Jest unit tests (one file per Lambda / utility)

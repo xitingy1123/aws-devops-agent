@@ -111,7 +111,10 @@ CloudWatch 告警 → EventBridge → Step Functions(挂起等回调)→ HMAC �
 │       └── feishu-bot/               ← ⚠ 独立功能:飞书对话式 Bot,与告警 RCA 解耦
 │
 ├── scripts/
-│   └── stress-cpu.sh                 ← 在 EC2 上压 CPU 来触发告警(唯一与 RCA 相关的辅助脚本)
+│   └── stress-tests/                 ← 真实压测脚本(EC2/Lambda/S3,触发真实告警链路)
+│       ├── 01-ec2-cpu-stress.sh
+│       ├── 02-lambda-errors-stress.sh
+│       └── 03-s3-4xx-stress.sh
 │
 ├── test/
 │   ├── unit/                         ← Jest 单元测试(每个 Lambda + 工具函数一一对应)
