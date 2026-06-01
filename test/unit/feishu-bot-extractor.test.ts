@@ -31,7 +31,7 @@ describe('extractInvestigationTaskIds', () => {
     //   "[[investigation:<uuid>:<title>]]"
     const text =
       `I've created the investigation: [[investigation:0556a555-ca43-4a3a-8975-35b21a1f966d:` +
-      `High CPU spikes on EC2 instance i-05e0f2644126943e9]]`;
+      `High CPU spikes on EC2 instance i-1234567890abcdef0]]`;
     expect(extractInvestigationTaskIds(text)).toEqual([
       '0556a555-ca43-4a3a-8975-35b21a1f966d',
     ]);
@@ -95,7 +95,7 @@ describe('extractInvestigationTaskIds', () => {
 
   it('extracts from realistic multi-paragraph chat response (mirrors user screenshot)', () => {
     const text = `
-I've created the investigation: [[investigation:0556a555-ca43-4a3a-8975-35b21a1f966d:High CPU spikes on EC2 instance i-05e0f2644126943e9]]
+I've created the investigation: [[investigation:0556a555-ca43-4a3a-8975-35b21a1f966d:High CPU spikes on EC2 instance i-1234567890abcdef0]]
 
 The investigation will analyze:
 - Metrics — CPU utilization patterns and any correlating resource metrics

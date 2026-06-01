@@ -27,3 +27,10 @@ Thumbs.db
 
 # Agent
 .kiro/
+
+# CDK local cache (contains real account ID + VPC IDs, regenerated on each deploy)
+cdk.context.json
+
+# Local SSM config files used during testing (may contain real Feishu webhook tokens)
+scripts/rca-config-*.json
+!scripts/rca-config-*.example.json

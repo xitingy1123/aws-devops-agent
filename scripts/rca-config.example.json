@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "alarmSelectionMode": "all",
+  "selectedAlarmNames": [],
+  "alarmFilters": [
+    {"type": "namespace",    "value": "AWS/EC2",   "action": "include"},
+    {"type": "name_pattern", "value": "^Test.*",   "action": "exclude"}
+  ],
+  "feishuWebhooks": [
+    {
+      "url": "https://open.feishu.cn/open-apis/bot/v2/hook/<your-webhook-token>",
+      "name": "默认告警群",
+      "routingRules": []
+    }
+  ],
+  "rcaTimeout": 600,
+  "retryPolicy": {"maxRetries": 1, "initialDelay": 5, "backoffMultiplier": 2},
+  "groupingWindow": 120,
+  "retentionDays": 90
+}
