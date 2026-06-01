@@ -106,7 +106,7 @@ export const handler = async (event: AlarmRouterInput): Promise<AlarmRouterOutpu
     correlationId,
     alarmName: parsedAlarm.alarmName,
     namespace: parsedAlarm.namespace,
-    resourceArn: parsedAlarm.resourceArn,
+    resource: parsedAlarm.resource,
     timestamp: new Date().toISOString(),
   }));
 

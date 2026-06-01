@@ -62,7 +62,6 @@ function validConfig(overrides?: Partial<SystemConfig>): SystemConfig {
     rcaTimeout: 300,
     retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
     groupingWindow: 120,
-    enabledNamespaces: ['AWS/EC2'],
     retentionDays: 90,
     ...overrides,
   };
@@ -182,7 +181,6 @@ describe('Integration: ConfigManager + SSM Parameter Store', () => {
       feishuWebhooks: [
         { url: 'https://x', name: 'team-a', routingRules: [] },
       ],
-      enabledNamespaces: ['AWS/EC2', 'AWS/RDS'],
     });
     ssm.setParameter(PARAMETER_PATH, JSON.stringify(original));
 

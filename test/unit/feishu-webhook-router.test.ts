@@ -65,76 +65,6 @@ describe('routeWebhooks', () => {
     });
   });
 
-  describe('tag matching', () => {
-    it('should match webhook when tag equals the pattern', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Production Team',
-          routingRules: [{ field: 'tag', pattern: 'env=production', match: 'equals' }],
-        },
-      ];
-
-      const result = routeWebhooks('AWS/EC2', { env: 'production' }, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-
-    it('should not match when tag key does not exist', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Production Team',
-          routingRules: [{ field: 'tag', pattern: 'env=production', match: 'equals' }],
-        },
-      ];
-
-      // No match → broadcast
-      const result = routeWebhooks('AWS/EC2', { team: 'backend' }, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-
-    it('should not match when tag value does not match', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Production Team',
-          routingRules: [{ field: 'tag', pattern: 'env=production', match: 'equals' }],
-        },
-      ];
-
-      // No match → broadcast
-      const result = routeWebhooks('AWS/EC2', { env: 'staging' }, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-
-    it('should match tag with contains match type', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Prod Team',
-          routingRules: [{ field: 'tag', pattern: 'env=prod', match: 'contains' }],
-        },
-      ];
-
-      const result = routeWebhooks('AWS/EC2', { env: 'production' }, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-
-    it('should handle tag pattern without equals sign as non-matching', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Team',
-          routingRules: [{ field: 'tag', pattern: 'invalidpattern', match: 'equals' }],
-        },
-      ];
-
-      // Invalid tag pattern (no =) → non-matching → broadcast
-      const result = routeWebhooks('AWS/EC2', { env: 'production' }, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-  });
-
   describe('regex matching', () => {
     it('should match namespace with regex pattern', () => {
       const configs: WebhookConfig[] = [
@@ -146,19 +76,6 @@ describe('routeWebhooks', () => {
       ];
 
       const result = routeWebhooks('AWS/EC2', {}, configs);
-      expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
-    });
-
-    it('should match tag value with regex pattern', () => {
-      const configs: WebhookConfig[] = [
-        {
-          url: 'https://hook.feishu.cn/webhook1',
-          name: 'Team',
-          routingRules: [{ field: 'tag', pattern: 'env=prod.*', match: 'regex' }],
-        },
-      ];
-
-      const result = routeWebhooks('AWS/EC2', { env: 'production' }, configs);
       expect(result).toEqual(['https://hook.feishu.cn/webhook1']);
     });
 

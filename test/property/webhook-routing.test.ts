@@ -28,15 +28,9 @@ const arbNamespaceRule: fc.Arbitrary<WebhookRoutingRule> = fc.record({
   match: fc.constantFrom('equals', 'contains') as fc.Arbitrary<'equals' | 'contains'>,
 });
 
-const arbTagRule: fc.Arbitrary<WebhookRoutingRule> = fc.tuple(arbTagKey, arbTagValue).map(
-  ([key, value]) => ({
-    field: 'tag' as const,
-    pattern: `${key}=${value}`,
-    match: 'equals' as const,
-  })
-);
+const arbTagRule: fc.Arbitrary<WebhookRoutingRule> = arbNamespaceRule;
 
-const arbRoutingRule: fc.Arbitrary<WebhookRoutingRule> = fc.oneof(arbNamespaceRule, arbTagRule);
+const arbRoutingRule: fc.Arbitrary<WebhookRoutingRule> = arbNamespaceRule;
 
 const arbWebhookConfig: fc.Arbitrary<WebhookConfig> = fc.record({
   url: arbWebhookUrl,

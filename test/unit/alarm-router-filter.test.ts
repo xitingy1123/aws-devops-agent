@@ -14,7 +14,12 @@ function makeAlarm(overrides: Partial<AlarmRouterOutput> = {}): AlarmRouterOutpu
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0',
+    resource: {
+      accountId: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      resourceId: 'i-1234567890abcdef0',
+    },
     filtered: false,
     ...overrides,
   };
@@ -30,7 +35,6 @@ function makeConfig(overrides: Partial<SystemConfig> = {}): SystemConfig {
     rcaTimeout: 300,
     retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
     groupingWindow: 120,
-    enabledNamespaces: ['AWS/EC2', 'AWS/RDS'],
     retentionDays: 90,
     ...overrides,
   };
@@ -134,35 +138,6 @@ describe('shouldProcessAlarm', () => {
       const alarm = makeAlarm({ alarmName: 'test' });
       const config = makeConfig({
         alarmFilters: [{ type: 'name_pattern', value: '[invalid', action: 'exclude' }],
-      });
-      const result = shouldProcessAlarm(alarm, config);
-      expect(result.pass).toBe(true);
-    });
-  });
-
-  describe('filter rules - tag', () => {
-    it('should include alarm matching tag rule', () => {
-      const alarm = makeAlarm({ dimensions: { Environment: 'production' } });
-      const config = makeConfig({
-        alarmFilters: [{ type: 'tag', value: 'Environment=production', action: 'include' }],
-      });
-      const result = shouldProcessAlarm(alarm, config);
-      expect(result.pass).toBe(true);
-    });
-
-    it('should reject alarm not matching tag rule', () => {
-      const alarm = makeAlarm({ dimensions: { Environment: 'staging' } });
-      const config = makeConfig({
-        alarmFilters: [{ type: 'tag', value: 'Environment=production', action: 'include' }],
-      });
-      const result = shouldProcessAlarm(alarm, config);
-      expect(result.pass).toBe(false);
-    });
-
-    it('should handle tag value with equals sign in value', () => {
-      const alarm = makeAlarm({ dimensions: { Config: 'key=value' } });
-      const config = makeConfig({
-        alarmFilters: [{ type: 'tag', value: 'Config=key=value', action: 'include' }],
       });
       const result = shouldProcessAlarm(alarm, config);
       expect(result.pass).toBe(true);

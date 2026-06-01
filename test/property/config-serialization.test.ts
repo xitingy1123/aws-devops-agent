@@ -18,7 +18,7 @@ const arbRetryPolicy: fc.Arbitrary<RetryPolicy> = fc.record({
  * Arbitrary generator for a valid AlarmFilterRule.
  */
 const arbAlarmFilterRule: fc.Arbitrary<AlarmFilterRule> = fc.record({
-  type: fc.constantFrom('namespace', 'name_pattern', 'tag') as fc.Arbitrary<'namespace' | 'name_pattern' | 'tag'>,
+  type: fc.constantFrom('namespace', 'name_pattern') as fc.Arbitrary<'namespace' | 'name_pattern'>,
   value: fc.string({ minLength: 1, maxLength: 50 }).filter(s => s.trim().length > 0),
   action: fc.constantFrom('include', 'exclude') as fc.Arbitrary<'include' | 'exclude'>,
 });
@@ -31,7 +31,7 @@ const arbWebhookConfig: fc.Arbitrary<WebhookConfig> = fc.record({
   name: fc.string({ minLength: 1, maxLength: 30 }).filter(s => s.trim().length > 0),
   routingRules: fc.array(
     fc.record({
-      field: fc.constantFrom('namespace', 'tag') as fc.Arbitrary<'namespace' | 'tag'>,
+      field: fc.constant('namespace') as fc.Arbitrary<'namespace'>,
       pattern: fc.string({ minLength: 1, maxLength: 30 }).filter(s => s.trim().length > 0),
       match: fc.constantFrom('equals', 'contains', 'regex') as fc.Arbitrary<'equals' | 'contains' | 'regex'>,
     }),
@@ -53,7 +53,6 @@ const arbValidSystemConfig: fc.Arbitrary<SystemConfig> = fc
     rcaTimeout: fc.integer({ min: 1, max: 3600 }),
     retryPolicy: arbRetryPolicy,
     groupingWindow: fc.integer({ min: 1, max: 600 }),
-    enabledNamespaces: fc.array(fc.string({ minLength: 1, maxLength: 20 }).filter(s => s.trim().length > 0), { minLength: 0, maxLength: 5 }),
     retentionDays: fc.integer({ min: 1, max: 365 }),
   })
   .map((cfg) => {
@@ -83,7 +82,6 @@ describe('Property 12: Configuration serialization round-trip', () => {
         expect(deserialized.rcaTimeout).toEqual(config.rcaTimeout);
         expect(deserialized.retryPolicy).toEqual(config.retryPolicy);
         expect(deserialized.groupingWindow).toEqual(config.groupingWindow);
-        expect(deserialized.enabledNamespaces).toEqual(config.enabledNamespaces);
         expect(deserialized.retentionDays).toEqual(config.retentionDays);
 
         // Full deep equality

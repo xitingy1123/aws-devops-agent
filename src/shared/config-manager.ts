@@ -18,7 +18,6 @@ export const DEFAULT_CONFIG: SystemConfig = {
     backoffMultiplier: 2,
   },
   groupingWindow: 120,
-  enabledNamespaces: ['AWS/EC2', 'AWS/RDS', 'AWS/Lambda', 'AWS/ECS'],
   retentionDays: 90,
 };
 
@@ -103,11 +102,6 @@ export function validateConfig(config: unknown): string[] {
     if (typeof rp.backoffMultiplier !== 'number' || rp.backoffMultiplier <= 0) {
       errors.push('retryPolicy.backoffMultiplier must be a positive number');
     }
-  }
-
-  // enabledNamespaces must be an array
-  if (!Array.isArray(cfg.enabledNamespaces)) {
-    errors.push('enabledNamespaces must be an array');
   }
 
   return errors;

@@ -41,7 +41,12 @@ const arbAlarm: fc.Arbitrary<AlarmRouterOutput> = fc.tuple(arbAlarmName, arbName
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123',
+    resource: {
+      accountId: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      resourceId: 'i-abc123',
+    },
     filtered: false,
   })
 );
@@ -63,20 +68,9 @@ const arbNamePatternFilter: fc.Arbitrary<AlarmFilterRule> = fc.record({
   action: arbFilterAction,
 });
 
-const arbTagFilter: fc.Arbitrary<AlarmFilterRule> = fc.tuple(
-  arbDimensionKey,
-  arbDimensionValue,
-  arbFilterAction
-).map(([key, value, action]) => ({
-  type: 'tag' as const,
-  value: `${key}=${value}`,
-  action,
-}));
-
 const arbFilterRule: fc.Arbitrary<AlarmFilterRule> = fc.oneof(
   arbNamespaceFilter,
-  arbNamePatternFilter,
-  arbTagFilter
+  arbNamePatternFilter
 );
 
 const arbFilterRules: fc.Arbitrary<AlarmFilterRule[]> = fc.array(arbFilterRule, { minLength: 0, maxLength: 5 });

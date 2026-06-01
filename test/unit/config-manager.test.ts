@@ -20,7 +20,6 @@ function createValidConfig(overrides?: Partial<SystemConfig>): SystemConfig {
       backoffMultiplier: 2,
     },
     groupingWindow: 120,
-    enabledNamespaces: ['AWS/EC2'],
     retentionDays: 90,
     ...overrides,
   };

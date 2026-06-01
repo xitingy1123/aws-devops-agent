@@ -28,7 +28,6 @@ function createValidConfig(overrides?: Partial<SystemConfig>): SystemConfig {
     rcaTimeout: 300,
     retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
     groupingWindow: 120,
-    enabledNamespaces: ['AWS/EC2', 'AWS/RDS'],
     retentionDays: 90,
     ...overrides,
   };
@@ -262,19 +261,6 @@ describe('AlarmRouter Handler', () => {
 
       expect(result.filtered).toBe(true);
       expect(result.filterReason).toBe('no_include_rule_matched');
-    });
-
-    it('should apply tag filter correctly', async () => {
-      await loadHandler(
-        createValidConfig({
-          alarmFilters: [{ type: 'tag', value: 'InstanceId=i-1234567890abcdef0', action: 'include' }],
-        })
-      );
-
-      const event = buildValidAlarmEvent();
-      const result = await handler(event);
-
-      expect(result.filtered).toBe(false);
     });
 
     it('should handle combined custom mode and filter rules', async () => {

@@ -77,9 +77,42 @@ export interface AlarmRouterOutput {
   previousState: string;
   accountId: string;
   region: string;
-  resourceArn: string;
+  /**
+   * 资源标识。不再拼成 ARN——CloudWatch 告警事件本身不带 ARN，
+   * 不同 AWS 服务 ARN 格式各异，硬要拼会漏掉很多服务。
+   * 用 (accountId, region, service, resourceId) 四元组通用表达，
+   * 任何服务都能描述。
+   */
+  resource: ResourceIdentifier;
   filtered: boolean;
   filterReason?: string;
+}
+
+/**
+ * 资源标识符。
+ * 由 alarm-router 从告警的 namespace + dimensions 中提取：
+ *   - service: 从 namespace 推断（如 `AWS/EC2` → `ec2`）。
+ *     自定义 namespace 原样保留（如 `MyApp/Backend`）。
+ *   - resourceId: 取 dimensions 第一个值（绝大多数告警只有 1-2 个维度，
+ *     第一个维度就是主资源标识，比如 InstanceId / FunctionName）。
+ *     ECS 等多维度场景拼成 `cluster/service` 形式。
+ *     没有 dimension 时为空字符串（如 composite alarm）。
+ */
+export interface ResourceIdentifier {
+  accountId: string;
+  region: string;
+  service: string;
+  resourceId: string;
+}
+
+/**
+ * 把 ResourceIdentifier 序列化成 DDB partition key / 显示用的字符串：
+ *   `accountId/service/region/resourceId`
+ * 当 resourceId 为空时退化为 `accountId/service/region`。
+ */
+export function formatResourceKey(r: ResourceIdentifier): string {
+  const base = `${r.accountId}/${r.service}/${r.region}`;
+  return r.resourceId ? `${base}/${r.resourceId}` : base;
 }
 
 // -----------------------------------------------------------------------------
@@ -340,6 +373,11 @@ export interface WorkflowExecution {
   status: "pending" | "analyzing" | "completed" | "failed" | "timed_out" | "notified";
   groupId: string;
   alarmArns: string[];
+  /**
+   * 受影响资源标识（formatResourceKey 的字符串形式）。
+   * 历史字段名沿用 `resourceArns`，避免 DDB 现有数据 schema 大改；
+   * 内容已经从真正的 ARN 切换为 `accountId/service/region/resourceId`。
+   */
   resourceArns: string[];
   startedAt: string;
   completedAt?: string;
@@ -358,6 +396,11 @@ export interface WorkflowExecution {
  * Alarm group model stored in DynamoDB.
  */
 export interface AlarmGroup {
+  /**
+   * DDB partition key。值为 formatResourceKey(resource) 的结果，
+   * 字段名保留 `resourceArn` 是为了不动 DDB schema 名（partitionKey 的 name
+   * 在 CDK 里叫 `resourceArn`）。内容已经是 `accountId/service/region/resourceId`。
+   */
   resourceArn: string;
   groupId: string;
   alarms: AlarmRouterOutput[];
@@ -375,7 +418,7 @@ export interface AlarmGroup {
  * Alarm filter rule definition.
  */
 export interface AlarmFilterRule {
-  type: "namespace" | "name_pattern" | "tag";
+  type: "namespace" | "name_pattern";
   value: string;
   action: "include" | "exclude";
 }
@@ -384,7 +427,7 @@ export interface AlarmFilterRule {
  * Webhook routing rule.
  */
 export interface WebhookRoutingRule {
-  field: "namespace" | "tag";
+  field: "namespace";
   pattern: string;
   match: "equals" | "contains" | "regex";
 }
@@ -419,6 +462,5 @@ export interface SystemConfig {
   rcaTimeout: number;
   retryPolicy: RetryPolicy;
   groupingWindow: number;
-  enabledNamespaces: string[];
   retentionDays: number;
 }

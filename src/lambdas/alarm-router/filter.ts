@@ -73,8 +73,6 @@ function matchesRule(alarm: AlarmRouterOutput, rule: AlarmFilterRule): boolean {
       return matchNamespace(alarm, rule.value);
     case 'name_pattern':
       return matchNamePattern(alarm, rule.value);
-    case 'tag':
-      return matchTag(alarm, rule.value);
     default:
       return false;
   }
@@ -98,23 +96,4 @@ function matchNamePattern(alarm: AlarmRouterOutput, pattern: string): boolean {
     // Invalid regex pattern - treat as no match
     return false;
   }
-}
-
-/**
- * Match alarm tags against rule value.
- * Rule value format: "key=value"
- * Tags are stored in the alarm's dimensions field.
- */
-function matchTag(alarm: AlarmRouterOutput, tagValue: string): boolean {
-  const separatorIndex = tagValue.indexOf('=');
-  if (separatorIndex === -1) {
-    return false;
-  }
-
-  const tagKey = tagValue.substring(0, separatorIndex);
-  const tagVal = tagValue.substring(separatorIndex + 1);
-
-  // Check dimensions for tag matching
-  const dimensions = alarm.dimensions ?? {};
-  return dimensions[tagKey] === tagVal;
 }

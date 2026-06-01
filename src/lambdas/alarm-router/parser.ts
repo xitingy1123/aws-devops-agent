@@ -1,4 +1,4 @@
-import { AlarmRouterInput, AlarmRouterOutput } from '../../shared/types';
+import { AlarmRouterInput, AlarmRouterOutput, ResourceIdentifier } from '../../shared/types';
 
 /**
  * Parse a CloudWatch Alarm State Change event into a structured AlarmRouterOutput.
@@ -44,8 +44,12 @@ function extractAlarmFields(event: AlarmRouterInput): AlarmRouterOutput {
   // Extract threshold and current value from reasonData
   const { threshold, currentValue } = extractThresholdAndValue(detail);
 
-  // Build resource ARN from dimensions
-  const resourceArn = buildResourceArn(metricInfo.dimensions, accountId, region);
+  const resource = extractResourceIdentifier(
+    metricInfo.namespace,
+    metricInfo.dimensions,
+    accountId,
+    region,
+  );
 
   return {
     alarmId,
@@ -59,7 +63,7 @@ function extractAlarmFields(event: AlarmRouterInput): AlarmRouterOutput {
     previousState,
     accountId,
     region,
-    resourceArn,
+    resource,
     filtered: false,
   };
 }
@@ -157,71 +161,74 @@ function extractThresholdAndValue(detail: AlarmRouterInput['detail']): {
 }
 
 /**
- * Build a resource ARN from alarm dimensions.
- * Maps common dimension patterns to their corresponding AWS resource ARNs.
+ * Build a generic ResourceIdentifier from alarm metric info.
+ *
+ * 不再尝试拼成 ARN ——CloudWatch 告警事件本身不带 ARN，且每个服务 ARN
+ * 格式都不同，硬要支持就要列 200+ 服务。这里用 (accountId, region,
+ * service, resourceId) 四元组通用表达：
+ *
+ *   service:    从 namespace 推断
+ *               - "AWS/EC2"   → "ec2"
+ *               - "AWS/Lambda" → "lambda"
+ *               - "AWS/ApplicationELB" → "applicationelb"
+ *               - 自定义 namespace 原样保留（如 "MyApp/Backend"）
+ *
+ *   resourceId: 取 dimensions 第一个值
+ *               - InstanceId / FunctionName / TableName / BucketName / ...
+ *                 这些都是单维度告警，第一个值就是主资源 ID
+ *               - ECS 等少数多维度场景把所有值用 "/" 拼起来
+ *                 （如 ClusterName=prod, ServiceName=api → "prod/api"）
+ *               - 没维度（composite alarm）则为空字符串
+ *
+ * 这种表达对所有 AWS 服务都适用——任何服务的告警都至少有 namespace 和
+ * 维度，缺一个最坏退化到空 resourceId（DDB partition 仍能正常工作）。
  */
-function buildResourceArn(
+function extractResourceIdentifier(
+  namespace: string,
   dimensions: Record<string, string>,
   accountId: string,
-  region: string
-): string {
-  if (!dimensions || Object.keys(dimensions).length === 0) {
-    return '';
-  }
+  region: string,
+): ResourceIdentifier {
+  return {
+    accountId,
+    region,
+    service: serviceFromNamespace(namespace),
+    resourceId: resourceIdFromDimensions(dimensions),
+  };
+}
 
-  // EC2 Instance
-  if (dimensions['InstanceId']) {
-    return `arn:aws:ec2:${region}:${accountId}:instance/${dimensions['InstanceId']}`;
+/**
+ * Convert CloudWatch metric namespace to a short service slug.
+ * "AWS/EC2" → "ec2"; "AWS/ApplicationELB" → "applicationelb"; custom kept as-is.
+ */
+function serviceFromNamespace(namespace: string): string {
+  if (!namespace) return '';
+  if (namespace.startsWith('AWS/')) {
+    return namespace.slice(4).toLowerCase();
   }
+  return namespace; // 自定义 namespace 原样返回（保留用户的命名约定）
+}
 
-  // RDS Instance
-  if (dimensions['DBInstanceIdentifier']) {
-    return `arn:aws:rds:${region}:${accountId}:db:${dimensions['DBInstanceIdentifier']}`;
-  }
-
-  // Lambda Function
-  if (dimensions['FunctionName']) {
-    return `arn:aws:lambda:${region}:${accountId}:function:${dimensions['FunctionName']}`;
-  }
-
-  // ELB / ALB
-  if (dimensions['LoadBalancer']) {
-    return `arn:aws:elasticloadbalancing:${region}:${accountId}:loadbalancer/${dimensions['LoadBalancer']}`;
-  }
-
-  // SQS Queue
-  if (dimensions['QueueName']) {
-    return `arn:aws:sqs:${region}:${accountId}:${dimensions['QueueName']}`;
-  }
-
-  // DynamoDB Table
-  if (dimensions['TableName']) {
-    return `arn:aws:dynamodb:${region}:${accountId}:table/${dimensions['TableName']}`;
-  }
-
-  // S3 Bucket
-  if (dimensions['BucketName']) {
-    return `arn:aws:s3:::${dimensions['BucketName']}`;
-  }
-
-  // ECS Cluster/Service
-  if (dimensions['ClusterName'] && dimensions['ServiceName']) {
-    return `arn:aws:ecs:${region}:${accountId}:service/${dimensions['ClusterName']}/${dimensions['ServiceName']}`;
-  }
-
-  // SNS Topic
-  if (dimensions['TopicName']) {
-    return `arn:aws:sns:${region}:${accountId}:${dimensions['TopicName']}`;
-  }
-
-  // Fallback: return empty string if no known dimension pattern matches
-  return '';
+/**
+ * Pick the most meaningful resource identifier from the dimensions.
+ * 99% of CloudWatch alarms have 1-2 dimensions where the first value is the
+ * primary resource. Multi-dim cases (ECS) are joined with `/`.
+ */
+function resourceIdFromDimensions(dimensions: Record<string, string>): string {
+  if (!dimensions) return '';
+  const values = Object.values(dimensions).filter(Boolean);
+  if (values.length === 0) return '';
+  if (values.length === 1) return values[0];
+  // 多维度：所有值用 / 拼起来。比如 ECS 的 (ClusterName, ServiceName) → "prod/api"
+  return values.join('/');
 }
 
 /**
  * Build a filtered output with safe defaults for all fields.
  */
 function buildFilteredOutput(event: AlarmRouterInput, filterReason: string): AlarmRouterOutput {
+  const accountId = event?.account ?? '';
+  const region = event?.region ?? '';
   return {
     alarmId: event?.resources?.[0] ?? '',
     alarmName: event?.detail?.alarmName ?? '',
@@ -232,9 +239,9 @@ function buildFilteredOutput(event: AlarmRouterInput, filterReason: string): Ala
     currentValue: 0,
     stateChangeTimestamp: event?.detail?.state?.timestamp ?? event?.time ?? '',
     previousState: event?.detail?.previousState?.value ?? 'UNKNOWN',
-    accountId: event?.account ?? '',
-    region: event?.region ?? '',
-    resourceArn: '',
+    accountId,
+    region,
+    resource: { accountId, region, service: '', resourceId: '' },
     filtered: true,
     filterReason,
   };

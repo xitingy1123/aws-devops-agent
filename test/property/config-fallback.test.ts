@@ -24,7 +24,6 @@ function createValidConfig(overrides?: Partial<SystemConfig>): SystemConfig {
       backoffMultiplier: 2,
     },
     groupingWindow: 120,
-    enabledNamespaces: ['AWS/EC2'],
     retentionDays: 90,
     ...overrides,
   };
@@ -97,10 +96,7 @@ const arbInvalidConfig: fc.Arbitrary<unknown> = fc.oneof(
   fc.constant({ ...createValidConfig(), alarmFilters: 'not-an-array' }),
 
   // Non-array feishuWebhooks
-  fc.constant({ ...createValidConfig(), feishuWebhooks: 'not-an-array' }),
-
-  // Non-array enabledNamespaces
-  fc.constant({ ...createValidConfig(), enabledNamespaces: 'not-an-array' })
+  fc.constant({ ...createValidConfig(), feishuWebhooks: 'not-an-array' })
 );
 
 describe('Property 13: Invalid configuration fallback', () => {

@@ -12,6 +12,7 @@ import {
   AlarmGrouperOutput,
   AlarmGroup,
   AlarmRouterOutput,
+  formatResourceKey,
 } from '../../shared/types';
 
 const dynamoClient = new DynamoDBClient({});
@@ -22,10 +23,14 @@ const TABLE_NAME = process.env.ALARM_GROUP_TABLE_NAME ?? '';
 
 /**
  * Queries DynamoDB for an active alarm group (status="collecting") for the given
- * resourceArn where the current time falls within the group's collection window.
+ * resourceKey where the current time falls within the group's collection window.
+ *
+ * 注意：DDB partition key 字段名仍叫 `resourceArn`（保留 schema 兼容），
+ * 但 value 已经从真正的 ARN 切换为 formatResourceKey() 的输出
+ * (`accountId/service/region/resourceId`)。
  */
 async function findActiveGroup(
-  resourceArn: string,
+  resourceKey: string,
   now: Date
 ): Promise<AlarmGroup | undefined> {
   const nowISO = now.toISOString();
@@ -40,7 +45,7 @@ async function findActiveGroup(
         '#status': 'status',
       },
       ExpressionAttributeValues: {
-        ':arn': resourceArn,
+        ':arn': resourceKey,
         ':collecting': 'collecting',
         ':now': nowISO,
       },
@@ -94,7 +99,7 @@ async function createNewGroup(
   const ttl = Math.floor(now.getTime() / 1000) + groupingWindowSeconds + 3600;
 
   const group: AlarmGroup = {
-    resourceArn: alarm.resourceArn,
+    resourceArn: formatResourceKey(alarm.resource),
     groupId,
     alarms: [alarm],
     windowStart,
@@ -116,7 +121,7 @@ async function createNewGroup(
 /**
  * AlarmGrouper Lambda handler.
  *
- * Groups alarms by resourceArn within a configurable time window (default 2 minutes).
+ * Groups alarms by resource within a configurable time window (default 2 minutes).
  * - If an active group exists for the same resource, adds the alarm to that group.
  * - If no active group exists, creates a new group.
  * - On DynamoDB failure, creates a single-alarm group and proceeds (degraded mode).
@@ -134,9 +139,11 @@ export const handler = async (event: AlarmGrouperInput): Promise<AlarmGrouperOut
     console.warn('[AlarmGrouper] Failed to load config, using default groupingWindow', error);
   }
 
+  const resourceKey = formatResourceKey(alarm.resource);
+
   try {
     // Check for an active group for this resource
-    const activeGroup = await findActiveGroup(alarm.resourceArn, now);
+    const activeGroup = await findActiveGroup(resourceKey, now);
 
     if (activeGroup) {
       // Add alarm to existing group
@@ -157,7 +164,7 @@ export const handler = async (event: AlarmGrouperInput): Promise<AlarmGrouperOut
     // No active group — create a new one
     const newGroup = await createNewGroup(alarm, groupingWindowSeconds, now);
     console.log(
-      `[AlarmGrouper] Created new group ${newGroup.groupId} for resource ${alarm.resourceArn}`
+      `[AlarmGrouper] Created new group ${newGroup.groupId} for resource ${resourceKey}`
     );
 
     return {

@@ -39,7 +39,6 @@ jest.mock('@aws-sdk/client-ssm', () => ({
           rcaTimeout: 300,
           retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
           groupingWindow: 120,
-          enabledNamespaces: ['AWS/EC2', 'AWS/RDS', 'AWS/Lambda'],
           retentionDays: 90,
         }),
       },
@@ -211,7 +210,12 @@ describe('Integration: end-to-end flow with webhook-mode RCAAnalyzer', () => {
           previousState: 'OK',
           accountId: '123456789012',
           region: 'us-east-1',
-          resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123',
+          resource: {
+            accountId: '123456789012',
+            region: 'us-east-1',
+            service: 'ec2',
+            resourceId: 'i-abc123',
+          },
           filtered: false,
         },
       ];
