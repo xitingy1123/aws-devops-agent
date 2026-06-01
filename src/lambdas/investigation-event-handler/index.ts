@@ -61,6 +61,7 @@ import {
   RCAAnalyzerOutput,
   RCAReport,
   FeishuNotifierInput,
+  formatResourceKey,
 } from '../../shared/types';
 
 const METRIC_NAMESPACE = 'CloudWatchAlarmAutoRCA';
@@ -494,7 +495,7 @@ function buildRootCauseReport(args: {
         metricName: a.metricName,
         currentValue: a.currentValue,
         threshold: a.threshold,
-        resource: a.resourceArn || '',
+        resource: formatResourceKey(a.resource),
       })),
       firstAlarmTime,
       lastAlarmTime,
@@ -513,7 +514,7 @@ function buildRootCauseReport(args: {
       category: 'unknown',
       details: primaryRC.details,
       confidence: isCompleted ? 'medium' : 'low',
-      affectedResources: alarms.map((a) => a.resourceArn).filter((arn) => !!arn),
+      affectedResources: alarms.map((a) => formatResourceKey(a.resource)).filter((s) => !!s),
     },
     remediation: {
       // Phase-1 card: don't bother filling remediation here — phase 2 will
@@ -593,7 +594,7 @@ function buildMitigationReport(args: {
         metricName: a.metricName,
         currentValue: a.currentValue,
         threshold: a.threshold,
-        resource: a.resourceArn || '',
+        resource: formatResourceKey(a.resource),
       })),
       firstAlarmTime,
       lastAlarmTime,
@@ -610,7 +611,7 @@ function buildMitigationReport(args: {
       category: 'unknown',
       details: '',
       confidence: isCompleted ? 'medium' : 'low',
-      affectedResources: alarms.map((a) => a.resourceArn).filter((arn) => !!arn),
+      affectedResources: alarms.map((a) => formatResourceKey(a.resource)).filter((s) => !!s),
     },
     remediation: {
       immediateMitigation: mitigationPlan[0]?.step ?? '',

@@ -20,7 +20,7 @@ const mockAlarms: AlarmRouterOutput[] = [
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0',
+    resource: { accountId: '123456789012', region: 'us-east-1', service: 'ec2', resourceId: 'i-1234567890abcdef0' },
     filtered: false,
   },
   {
@@ -35,7 +35,7 @@ const mockAlarms: AlarmRouterOutput[] = [
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0',
+    resource: { accountId: '123456789012', region: 'us-east-1', service: 'ec2', resourceId: 'i-1234567890abcdef0' },
     filtered: false,
   },
 ];
@@ -142,7 +142,7 @@ describe('report-generator', () => {
       expect(report.rootCause.category).toBe('unknown');
       expect(report.rootCause.confidence).toBe('medium');
       expect(report.rootCause.affectedResources).toContain(
-        'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+        '123456789012/ec2/us-east-1/i-1234567890abcdef0'
       );
     });
 
@@ -201,13 +201,17 @@ describe('report-generator', () => {
       const report = generatePartialReport(agentResponse, mockAlarms, groupId);
 
       expect(report.rootCause.affectedResources).toContain(
-        'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+        '123456789012/ec2/us-east-1/i-1234567890abcdef0'
       );
     });
 
-    it('should filter out empty resource ARNs', () => {
+    it('should filter out empty resource keys', () => {
+      // resource 全空字段时 formatResourceKey 输出 "//", 不为空字符串,因此
+      // 这条 alarm 的 resource key 仍会进入 affectedResources。要测真正的
+      // "空 resource 被过滤", 用 service/resourceId 全为空的 ResourceIdentifier。
+      const blank = { accountId: '', region: '', service: '', resourceId: '' };
       const alarmsWithEmpty: AlarmRouterOutput[] = [
-        { ...mockAlarms[0], resourceArn: '' },
+        { ...mockAlarms[0], resource: blank },
         mockAlarms[1],
       ];
 
@@ -220,7 +224,7 @@ describe('report-generator', () => {
 
       expect(report.rootCause.affectedResources).not.toContain('');
       expect(report.rootCause.affectedResources).toContain(
-        'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+        '123456789012/ec2/us-east-1/i-1234567890abcdef0'
       );
     });
   });

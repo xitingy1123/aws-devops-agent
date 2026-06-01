@@ -3,7 +3,7 @@
 
 import * as fc from 'fast-check';
 import { generateFullReport, AgentResponse } from '../../src/lambdas/rca-analyzer/report-generator';
-import { AlarmRouterOutput } from '../../src/shared/types';
+import { AlarmRouterOutput, ResourceIdentifier } from '../../src/shared/types';
 
 // --- Arbitrary generators ---
 
@@ -17,10 +17,17 @@ const arbMetricName = fc.constantFrom(
   'CPUUtilization', 'FreeableMemory', 'Duration', 'Errors'
 );
 
-const arbResourceArn = fc.constantFrom(
-  'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123',
-  'arn:aws:rds:us-east-1:123456789012:db:prod-db',
-  'arn:aws:lambda:us-east-1:123456789012:function:my-func'
+const arbResource: fc.Arbitrary<ResourceIdentifier> = fc.constantFrom<ResourceIdentifier>(
+  { accountId: '123456789012', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc123' },
+  { accountId: '123456789012', region: 'us-east-1', service: 'rds', resourceId: 'prod-db' },
+  { accountId: '123456789012', region: 'us-east-1', service: 'lambda', resourceId: 'my-func' }
+);
+
+// 受影响资源在 affectedResources 数组里依旧是字符串形式的 resource key。
+const arbResourceKeyString = fc.constantFrom(
+  '123456789012/ec2/us-east-1/i-abc123',
+  '123456789012/rds/us-east-1/prod-db',
+  '123456789012/lambda/us-east-1/my-func'
 );
 
 const arbTimestamp = fc.integer({ min: 1700000000000, max: 1710000000000 }).map(
@@ -39,7 +46,7 @@ const arbAlarm: fc.Arbitrary<AlarmRouterOutput> = fc.record({
   previousState: fc.constant('OK'),
   accountId: fc.constant('123456789012'),
   region: fc.constant('us-east-1'),
-  resourceArn: arbResourceArn,
+  resource: arbResource,
   filtered: fc.constant(false),
 });
 
@@ -71,7 +78,7 @@ const arbAgentResponseData = fc.record({
     category: arbCategory,
     details: fc.string({ minLength: 1, maxLength: 200 }),
     confidence: arbConfidence,
-    affectedResources: fc.array(arbResourceArn, { minLength: 1, maxLength: 3 }),
+    affectedResources: fc.array(arbResourceKeyString, { minLength: 1, maxLength: 3 }),
   }),
   remediation: fc.record({
     immediateMitigation: fc.string({ minLength: 1, maxLength: 100 }),

@@ -62,7 +62,7 @@ export const handler = async (event: FeishuNotifierInput): Promise<FeishuNotifie
     })
   );
 
-  // Determine target webhook URLs
+  // 决定目标 webhook URLs
   let targetWebhookUrls: string[];
 
   if (webhookUrls.length > 0) {
@@ -77,6 +77,33 @@ export const handler = async (event: FeishuNotifierInput): Promise<FeishuNotifie
         : '';
 
     targetWebhookUrls = routeWebhooks(alarmNamespace, {}, config.feishuWebhooks);
+  }
+
+  // 关键守卫：没有任何目标 webhook 是配置错误，不能静默 success=true。
+  // 在以前的版本中，sentTo=[] && failedTo=[] 会被算成 success（因为没失败），
+  // 导致 SSM 配置丢失/路由规则全不匹配时悄无声息——upstream 看到 SUCCEEDED
+  // 但群里其实啥都没收到。
+  if (targetWebhookUrls.length === 0) {
+    const errorMsg =
+      webhookUrls.length === 0
+        ? 'No feishuWebhooks configured in SSM (or all routing rules excluded this alarm)'
+        : 'Provided webhookUrls is empty';
+    console.error(
+      JSON.stringify({
+        level: 'ERROR',
+        message: 'FeishuNotifier has no target webhooks to send to',
+        reportId: rcaReport.reportId,
+        notificationType,
+        reason: errorMsg,
+      })
+    );
+    await emitMetrics(0, 1);
+    return {
+      success: false,
+      sentTo: [],
+      failedTo: [],
+      retryCount: 0,
+    };
   }
 
   // 把报告渲染成飞书消息序列。短报告 → 1 条卡片；超长报告 → 1 条精简卡片 + 多条文本消息。

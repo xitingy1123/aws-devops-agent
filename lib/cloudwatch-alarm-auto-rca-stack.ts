@@ -160,7 +160,6 @@ export class CloudwatchAlarmAutoRcaStack extends cdk.Stack {
           backoffMultiplier: 2,
         },
         groupingWindow: 120,
-        enabledNamespaces: ['AWS/EC2', 'AWS/RDS', 'AWS/Lambda', 'AWS/ECS'],
         retentionDays: 90,
       }),
     });

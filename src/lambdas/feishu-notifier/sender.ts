@@ -99,6 +99,19 @@ function postToWebhook(webhookUrl: string, message: FeishuMessage): Promise<void
         data += chunk;
       });
       res.on('end', () => {
+        // 始终记录飞书响应（便于排查"返回 success 但消息没到群里"这种情况）
+        const truncated = data.length > 500 ? data.substring(0, 500) + '...' : data;
+        console.log(JSON.stringify({
+          level: 'INFO',
+          message: 'Feishu webhook response',
+          statusCode: res.statusCode,
+          host: url.hostname,
+          path: url.pathname,
+          msgType: (message as any).msg_type,
+          bodyLen: body.length,
+          response: truncated,
+        }));
+
         if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
           // Check Feishu response body for error code
           try {

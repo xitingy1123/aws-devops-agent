@@ -38,7 +38,6 @@ jest.mock('@aws-sdk/client-ssm', () => ({
           rcaTimeout: 300,
           retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
           groupingWindow: 120,
-          enabledNamespaces: ['AWS/EC2'],
           retentionDays: 90,
         }),
       },
@@ -90,7 +89,12 @@ function createTestAlarm(overrides?: Partial<AlarmRouterOutput>): AlarmRouterOut
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0',
+    resource: {
+      accountId: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      resourceId: 'i-1234567890abcdef0',
+    },
     filtered: false,
   };
 }

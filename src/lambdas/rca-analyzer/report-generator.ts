@@ -1,5 +1,5 @@
 import * as crypto from 'crypto';
-import { AlarmRouterOutput, RCAReport } from '../../shared/types';
+import { AlarmRouterOutput, RCAReport, formatResourceKey } from '../../shared/types';
 
 /**
  * Legacy-shaped agent response used by `generateFullReport` / `generatePartialReport`
@@ -47,7 +47,7 @@ function buildAlarmSummary(alarms: AlarmRouterOutput[]): RCAReport['alarmSummary
       metricName: a.metricName,
       currentValue: a.currentValue,
       threshold: a.threshold,
-      resource: a.resourceArn || '',
+      resource: formatResourceKey(a.resource),
     })),
     firstAlarmTime,
     lastAlarmTime,
@@ -92,7 +92,7 @@ export function generateFullReport(
     confidence: validateConfidence(data.rootCause?.confidence) || 'medium',
     affectedResources: Array.isArray(data.rootCause?.affectedResources)
       ? data.rootCause.affectedResources
-      : alarms.map((a) => a.resourceArn).filter((arn) => arn !== ''),
+      : alarms.map((a) => formatResourceKey(a.resource)).filter((s) => s !== ''),
   };
 
   const remediation: RCAReport['remediation'] = {
@@ -162,7 +162,7 @@ export function generatePartialReport(
       category: 'unknown',
       details: agentResponse.error || 'DevOps Agent was unavailable or returned an error after all retries',
       confidence: 'low',
-      affectedResources: alarms.map((a) => a.resourceArn).filter((arn) => arn !== ''),
+      affectedResources: alarms.map((a) => formatResourceKey(a.resource)).filter((s) => s !== ''),
     },
     remediation: {
       immediateMitigation: 'Manual investigation required',
@@ -207,7 +207,7 @@ export function generateTimeoutReport(
       category: 'unknown',
       details: agentResponse.error || 'DevOps Agent did not respond within the configured timeout',
       confidence: 'low',
-      affectedResources: alarms.map((a) => a.resourceArn).filter((arn) => arn !== ''),
+      affectedResources: alarms.map((a) => formatResourceKey(a.resource)).filter((s) => s !== ''),
     },
     remediation: {
       immediateMitigation: 'Manual investigation required',

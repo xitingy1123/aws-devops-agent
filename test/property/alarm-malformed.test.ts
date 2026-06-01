@@ -197,7 +197,11 @@ describe('Property 2: Malformed event graceful handling', () => {
         expect(typeof result.currentValue).toBe('number');
         expect(typeof result.accountId).toBe('string');
         expect(typeof result.region).toBe('string');
-        expect(typeof result.resourceArn).toBe('string');
+        expect(typeof result.resource).toBe('object');
+        expect(typeof result.resource.accountId).toBe('string');
+        expect(typeof result.resource.region).toBe('string');
+        expect(typeof result.resource.service).toBe('string');
+        expect(typeof result.resource.resourceId).toBe('string');
       }),
       { numRuns: 100 }
     );

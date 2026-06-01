@@ -22,7 +22,7 @@ import {
   PutCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { getDocClient } from '../../shared/dynamodb-client';
-import { AlarmRouterOutput } from '../../shared/types';
+import { AlarmRouterOutput, formatResourceKey } from '../../shared/types';
 
 export interface PendingInvestigation {
   incidentId: string;
@@ -61,7 +61,7 @@ export async function writePendingInvestigation(p: PendingInvestigation): Promis
 
   const ttl = Math.floor(new Date(p.triggeredAt).getTime() / 1000) + PENDING_TTL_HOURS * 3600;
   const alarmArns = p.alarms.map((a) => a.alarmId).filter((s) => !!s);
-  const resourceArns = p.alarms.map((a) => a.resourceArn).filter((s) => !!s);
+  const resourceArns = p.alarms.map((a) => formatResourceKey(a.resource)).filter((s) => !!s);
 
   await getDocClient().send(
     new PutCommand({

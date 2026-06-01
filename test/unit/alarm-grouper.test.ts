@@ -50,9 +50,18 @@ describe('AlarmGrouper Lambda handler', () => {
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123',
+    resource: {
+      accountId: '123456789012',
+      region: 'us-east-1',
+      service: 'ec2',
+      resourceId: 'i-abc123',
+    },
     filtered: false,
   };
+
+  // resourceKey is what the new alarm-grouper builds via formatResourceKey()
+  // and stores as the AlarmGroup.resourceArn field.
+  const baseAlarmResourceKey = '123456789012/ec2/us-east-1/i-abc123';
 
   const baseInput: AlarmGrouperInput = {
     alarm: baseAlarm,
@@ -100,7 +109,7 @@ describe('AlarmGrouper Lambda handler', () => {
   describe('Join existing group', () => {
     it('should add alarm to existing active group', async () => {
       const existingGroup: AlarmGroup = {
-        resourceArn: baseAlarm.resourceArn,
+        resourceArn: baseAlarmResourceKey,
         groupId: 'existing-group-id',
         alarms: [
           {
@@ -177,7 +186,7 @@ describe('AlarmGrouper Lambda handler', () => {
 
     it('should return single-alarm group when DynamoDB update fails for existing group', async () => {
       const existingGroup: AlarmGroup = {
-        resourceArn: baseAlarm.resourceArn,
+        resourceArn: baseAlarmResourceKey,
         groupId: 'existing-group-id',
         alarms: [baseAlarm],
         windowStart: '2024-01-15T09:59:00.000Z',

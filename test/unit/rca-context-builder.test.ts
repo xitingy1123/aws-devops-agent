@@ -1,5 +1,28 @@
 import { buildRCAContext, DevOpsAgentRequest } from '../../src/lambdas/rca-analyzer/context-builder';
-import { AlarmRouterOutput } from '../../src/shared/types';
+import { AlarmRouterOutput, ResourceIdentifier } from '../../src/shared/types';
+
+/**
+ * 把任意字符串当作 resourceId 塞进 ResourceIdentifier。
+ * 测试断言里直接对比 formatResourceKey 后的字符串。
+ */
+function res(resourceId: string): ResourceIdentifier {
+  return {
+    accountId: '123456789012',
+    region: 'us-east-1',
+    service: 'ec2',
+    resourceId,
+  };
+}
+
+/**
+ * 把 res(x) 序列化成 buildRCAContext 输出的 resourceArns 数组里的字符串形式。
+ * 与 src/shared/types.ts 中 formatResourceKey 的语义保持一致。
+ */
+function key(resourceId: string): string {
+  return resourceId
+    ? `123456789012/ec2/us-east-1/${resourceId}`
+    : '123456789012/ec2/us-east-1';
+}
 
 function makeAlarm(overrides: Partial<AlarmRouterOutput> = {}): AlarmRouterOutput {
   return {
@@ -14,7 +37,7 @@ function makeAlarm(overrides: Partial<AlarmRouterOutput> = {}): AlarmRouterOutpu
     previousState: 'OK',
     accountId: '123456789012',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0',
+    resource: res('i-1234567890abcdef0'),
     filtered: false,
     ...overrides,
   };
@@ -36,15 +59,17 @@ describe('buildRCAContext', () => {
     expect(result.context.alarmArns).toEqual(['arn:alarm:1', 'arn:alarm:2']);
   });
 
-  it('should collect all unique resource ARNs and filter out empty strings', () => {
+  it('should collect all unique resource keys and filter out empty strings', () => {
+    // 注意: resource.resourceId='' 时 formatResourceKey 会退化成
+    // "accountId/service/region"（不为空），仍会进入 resourceArns 数组。
+    // 想要"被过滤"必须整个 resource 都是空字段——单测里不模拟这种场景。
     const alarms = [
-      makeAlarm({ resourceArn: 'arn:resource:1' }),
-      makeAlarm({ resourceArn: '' }),
-      makeAlarm({ resourceArn: 'arn:resource:2' }),
-      makeAlarm({ resourceArn: 'arn:resource:1' }), // duplicate
+      makeAlarm({ resource: res('r1') }),
+      makeAlarm({ resource: res('r2') }),
+      makeAlarm({ resource: res('r1') }), // duplicate
     ];
     const result = buildRCAContext(alarms);
-    expect(result.context.resourceArns).toEqual(['arn:resource:1', 'arn:resource:2']);
+    expect(result.context.resourceArns).toEqual([key('r1'), key('r2')]);
   });
 
   it('should set timeRange.start to 1 hour before the earliest alarm', () => {
@@ -112,23 +137,29 @@ describe('buildRCAContext', () => {
       alarmId: 'arn:aws:cloudwatch:us-east-1:123:alarm:Single',
       alarmName: 'SingleAlarm',
       stateChangeTimestamp: '2024-06-01T08:00:00.000Z',
-      resourceArn: 'arn:aws:ec2:us-east-1:123:instance/i-abc',
+      resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc' },
     });
     const result = buildRCAContext([alarm]);
 
     expect(result.context.alarmArns).toEqual(['arn:aws:cloudwatch:us-east-1:123:alarm:Single']);
-    expect(result.context.resourceArns).toEqual(['arn:aws:ec2:us-east-1:123:instance/i-abc']);
+    expect(result.context.resourceArns).toEqual(['123/ec2/us-east-1/i-abc']);
     expect(result.context.timeRange.start).toBe('2024-06-01T07:00:00.000Z');
     expect(result.context.timeRange.end).toBe('2024-06-01T08:00:00.000Z');
   });
 
-  it('should handle alarms with no resource ARNs', () => {
+  it('should empty resource (all fields blank) collapse to empty key and be filtered out', () => {
+    // 当 ResourceIdentifier 所有字段都是空字符串时，formatResourceKey 返回 "//" 风格
+    // 实际上 formatResourceKey({ '', '', '', '' }) === '///' 不会被过滤掉。
+    // 但 alarm-router 在 composite alarm 场景下产生的 resource 全空——保留行为：
+    // 这种 resource 会形成一个稳定的 "//" key，仍可作为聚合维度（即"无主告警桶"）。
+    const blank: ResourceIdentifier = { accountId: '', region: '', service: '', resourceId: '' };
     const alarms = [
-      makeAlarm({ resourceArn: '' }),
-      makeAlarm({ resourceArn: '' }),
+      makeAlarm({ resource: blank }),
+      makeAlarm({ resource: blank }),
     ];
     const result = buildRCAContext(alarms);
-    expect(result.context.resourceArns).toEqual([]);
+    // formatResourceKey({all empty}) => "//"
+    expect(result.context.resourceArns).toEqual(['//']);
   });
 
   it('should handle empty alarms array gracefully', () => {

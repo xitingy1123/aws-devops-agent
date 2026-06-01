@@ -3,7 +3,7 @@
 
 import * as fc from 'fast-check';
 import { buildRCAContext } from '../../src/lambdas/rca-analyzer/context-builder';
-import { AlarmRouterOutput } from '../../src/shared/types';
+import { AlarmRouterOutput, ResourceIdentifier, formatResourceKey } from '../../src/shared/types';
 
 // --- Arbitrary generators ---
 
@@ -11,11 +11,11 @@ const arbAlarmId = fc.string({ minLength: 10, maxLength: 80 }).map(
   (s) => `arn:aws:cloudwatch:us-east-1:123456789012:alarm:${s.replace(/[^a-zA-Z0-9-_]/g, 'x')}`
 );
 
-const arbResourceArn = fc.constantFrom(
-  'arn:aws:ec2:us-east-1:123456789012:instance/i-abc123',
-  'arn:aws:rds:us-east-1:123456789012:db:prod-db',
-  'arn:aws:lambda:us-east-1:123456789012:function:my-func',
-  'arn:aws:ecs:us-east-1:123456789012:service/my-cluster/my-service'
+const arbResource: fc.Arbitrary<ResourceIdentifier> = fc.constantFrom<ResourceIdentifier>(
+  { accountId: '123456789012', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc123' },
+  { accountId: '123456789012', region: 'us-east-1', service: 'rds', resourceId: 'prod-db' },
+  { accountId: '123456789012', region: 'us-east-1', service: 'lambda', resourceId: 'my-func' },
+  { accountId: '123456789012', region: 'us-east-1', service: 'ecs', resourceId: 'my-cluster/my-service' }
 );
 
 const arbTimestamp = fc.integer({ min: 1700000000000, max: 1710000000000 }).map(
@@ -40,7 +40,7 @@ const arbAlarm: fc.Arbitrary<AlarmRouterOutput> = fc.record({
   previousState: fc.constant('OK'),
   accountId: fc.constant('123456789012'),
   region: fc.constant('us-east-1'),
-  resourceArn: arbResourceArn,
+  resource: arbResource,
   filtered: fc.constant(false),
 });
 
@@ -61,17 +61,21 @@ describe('Property 7: RCA context assembly completeness', () => {
     );
   });
 
-  it('assembled request always contains all resource ARNs', () => {
+  it('assembled request always contains all resource keys', () => {
     fc.assert(
       fc.property(arbAlarms, (alarms) => {
         const result = buildRCAContext(alarms);
 
-        // All unique non-empty resource ARNs must be present
-        const expectedResourceArns = [
-          ...new Set(alarms.map((a) => a.resourceArn).filter((arn) => arn !== '')),
+        // All unique non-empty resource keys must be present
+        const expectedResourceKeys = [
+          ...new Set(
+            alarms
+              .map((a) => formatResourceKey(a.resource))
+              .filter((s) => s !== '')
+          ),
         ];
-        expect(result.context.resourceArns).toEqual(expect.arrayContaining(expectedResourceArns));
-        expect(result.context.resourceArns.length).toBe(expectedResourceArns.length);
+        expect(result.context.resourceArns).toEqual(expect.arrayContaining(expectedResourceKeys));
+        expect(result.context.resourceArns.length).toBe(expectedResourceKeys.length);
       }),
       { numRuns: 100 }
     );

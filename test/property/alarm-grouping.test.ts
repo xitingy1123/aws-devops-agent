@@ -2,7 +2,7 @@
 // Validates: Requirements 2.5
 
 import * as fc from 'fast-check';
-import { AlarmRouterOutput } from '../../src/shared/types';
+import { AlarmRouterOutput, formatResourceKey } from '../../src/shared/types';
 
 /**
  * Pure function that determines if two alarms should be grouped together.
@@ -10,12 +10,17 @@ import { AlarmRouterOutput } from '../../src/shared/types';
  * 1. They share the same resourceArn
  * 2. Their timestamps are within the grouping window (in seconds)
  */
+/**
+ * Groups alarms together if:
+ * 1. They share the same resource (compared via formatResourceKey)
+ * 2. Their timestamps are within the grouping window (in seconds)
+ */
 function shouldGroupAlarms(
   alarm1: AlarmRouterOutput,
   alarm2: AlarmRouterOutput,
   groupingWindowSeconds: number
 ): boolean {
-  if (alarm1.resourceArn !== alarm2.resourceArn) {
+  if (formatResourceKey(alarm1.resource) !== formatResourceKey(alarm2.resource)) {
     return false;
   }
 
@@ -82,7 +87,14 @@ const arbAlarm = (resourceArn: string, timestamp: number): AlarmRouterOutput => 
   previousState: 'OK',
   accountId: '123456789012',
   region: 'us-east-1',
-  resourceArn,
+  // 测试里 resourceArn 实际是个不透明的资源标识符（property test 比较用）。
+  // 把它塞到 resource.resourceId,formatResourceKey 比较行为不变。
+  resource: {
+    accountId: '123456789012',
+    region: 'us-east-1',
+    service: 'ec2',
+    resourceId: resourceArn,
+  },
   filtered: false,
 });
 
@@ -102,8 +114,8 @@ describe('Property 6: Alarm grouping by resource and time window', () => {
 
           // Every group must contain alarms for only one resource
           for (const group of groups) {
-            const resourceArns = new Set(group.map((a) => a.resourceArn));
-            expect(resourceArns.size).toBe(1);
+            const resourceKeys = new Set(group.map((a) => formatResourceKey(a.resource)));
+            expect(resourceKeys.size).toBe(1);
           }
         }
       ),

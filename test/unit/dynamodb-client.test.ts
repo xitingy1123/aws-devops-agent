@@ -186,7 +186,7 @@ describe('addAlarmToGroup', () => {
       previousState: 'OK',
       accountId: '123456789012',
       region: 'us-east-1',
-      resourceArn: 'arn:aws:ec2:us-east-1:123:instance/i-abc',
+      resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc' },
       filtered: false,
     };
 
@@ -387,7 +387,8 @@ describe('concurrent writes', () => {
       previousState: 'OK',
       accountId: '123456789012',
       region: 'us-east-1',
-      resourceArn,
+      // 测试用：把任意字符串塞到 resourceId,formatResourceKey 行为不影响断言
+      resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId: resourceArn },
       filtered: false,
     };
   }

@@ -304,7 +304,7 @@ async function sendCardToChat(chatId: string, card: any): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * 构建欢迎/菜单卡片：用户输入"巡检"或"improvements"或"菜单"时显示
+ * 构建欢迎/菜单卡片：用户输入"改善计划"或"改进建议"或"improvements"时显示
  */
 function buildMenuCard(): any {
   return {
@@ -1368,16 +1368,13 @@ function extractText(event: FeishuEvent): string | null {
  * 判断用户消息是否触发巡检/菜单卡片。
  *
  * 同 isInvestigationTrigger：只对"整条消息就是命令"匹配，避免命中
- * 长句子里恰好包含 "menu" / "improvements" 等词的情况。
+ * 长句子里恰好包含 "improvements" 等词的情况。
  */
 function isMenuTrigger(text: string): boolean {
   const lower = text.toLowerCase().trim();
   const COMMAND_KEYWORDS = [
     '改善计划',
     '改进建议',
-    'menu',
-    'help',
-    '帮助',
     'improvements',
     'improvement',
   ];

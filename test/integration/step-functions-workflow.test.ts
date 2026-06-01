@@ -296,7 +296,7 @@ function makeAlarm(): any {
     previousState: 'OK',
     accountId: '123',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123:instance/i-abc123',
+    resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc123' },
     filtered: false,
   };
 }

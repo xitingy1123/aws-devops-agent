@@ -34,7 +34,6 @@ jest.mock('@aws-sdk/client-ssm', () => ({
           rcaTimeout: 300,
           retryPolicy: { maxRetries: 3, initialDelay: 5, backoffMultiplier: 2 },
           groupingWindow: 120,
-          enabledNamespaces: ['AWS/EC2'],
           retentionDays: 90,
         }),
       },
@@ -313,6 +312,59 @@ describe('FeishuNotifier Lambda handler', () => {
       expect(result.success).toBe(true);
       expect(result.failedTo).toEqual([]);
       expect(mockWriteToDeadLetter).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('empty target webhook guard', () => {
+    it('should return success=false when no webhooks are provided AND SSM config has none', async () => {
+      // Mock the ConfigManager to return empty feishuWebhooks
+      jest.resetModules();
+      jest.doMock('@aws-sdk/client-ssm', () => ({
+        SSMClient: jest.fn().mockImplementation(() => ({
+          send: jest.fn().mockResolvedValue({
+            Parameter: {
+              Value: JSON.stringify({
+                version: '1.0.0',
+                alarmSelectionMode: 'all',
+                selectedAlarmNames: [],
+                alarmFilters: [],
+                feishuWebhooks: [], // ← empty
+                rcaTimeout: 600,
+                retryPolicy: { maxRetries: 1, initialDelay: 5, backoffMultiplier: 2 },
+                groupingWindow: 120,
+                retentionDays: 90,
+              }),
+            },
+          }),
+        })),
+        GetParameterCommand: jest.fn(),
+      }));
+      jest.doMock('@aws-sdk/client-cloudwatch', () => ({
+        CloudWatchClient: jest.fn().mockImplementation(() => ({ send: jest.fn().mockResolvedValue({}) })),
+        PutMetricDataCommand: jest.fn(),
+      }));
+      jest.doMock('../../src/lambdas/feishu-notifier/sender', () => ({
+        sendToMultipleWebhooks: jest.fn(),
+        sendFeishuMessage: jest.fn(),
+        writeToDeadLetter: jest.fn(),
+      }));
+
+      const { handler: isolatedHandler } = await import('../../src/lambdas/feishu-notifier/index');
+      const { sendToMultipleWebhooks: isolatedSend } = await import('../../src/lambdas/feishu-notifier/sender');
+
+      const result = await isolatedHandler({
+        rcaReport: createMockReport(),
+        webhookUrls: [], // ← empty
+        notificationType: 'rca_complete',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.sentTo).toEqual([]);
+      expect(result.failedTo).toEqual([]);
+      // 关键：sender 一次都不该被调用
+      expect(isolatedSend).not.toHaveBeenCalled();
+
+      jest.resetModules();
     });
   });
 });

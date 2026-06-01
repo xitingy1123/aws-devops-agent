@@ -209,9 +209,20 @@ function makeAlarm(overrides?: Partial<AlarmRouterOutput>): AlarmRouterOutput {
     previousState: 'OK',
     accountId: '123',
     region: 'us-east-1',
-    resourceArn: 'arn:aws:ec2:us-east-1:123:instance/i-abc',
+    resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId: 'i-abc' },
     filtered: false,
     ...overrides,
+  };
+}
+
+/**
+ * 测试里把任意字符串当作 resource 标识塞进去（既可以是真 ARN,也可以是
+ * formatResourceKey 输出的 "account/service/region/id"——二者作为 partition
+ * key 字符串都能正常工作,DDB 不会区分）。
+ */
+function withResourceId(resourceId: string): Partial<AlarmRouterOutput> {
+  return {
+    resource: { accountId: '123', region: 'us-east-1', service: 'ec2', resourceId },
   };
 }
 
@@ -284,7 +295,7 @@ describe('Integration: DynamoDB alarm group operations', () => {
     await createAlarmGroup({
       resourceArn,
       groupId: 'group-expired',
-      alarms: [makeAlarm({ resourceArn })],
+      alarms: [makeAlarm(withResourceId(resourceArn))],
       windowStart: '2024-01-01T00:00:00.000Z',
       windowEnd: '2024-01-01T00:02:00.000Z',
       status: 'collecting',
@@ -300,7 +311,7 @@ describe('Integration: DynamoDB alarm group operations', () => {
     await createAlarmGroup({
       resourceArn,
       groupId: 'group-done',
-      alarms: [makeAlarm({ resourceArn })],
+      alarms: [makeAlarm(withResourceId(resourceArn))],
       windowStart: '2024-01-01T00:00:00.000Z',
       windowEnd: '2024-01-01T00:10:00.000Z',
       status: 'done',
@@ -313,7 +324,7 @@ describe('Integration: DynamoDB alarm group operations', () => {
 
   it('appends alarms to an existing group via list_append semantics', async () => {
     const resourceArn = 'arn:aws:ec2:us-east-1:123:instance/i-append';
-    const initialAlarm = makeAlarm({ resourceArn, alarmId: 'a1', alarmName: 'A1' });
+    const initialAlarm = makeAlarm({ ...withResourceId(resourceArn), alarmId: 'a1', alarmName: 'A1' });
     await createAlarmGroup({
       resourceArn,
       groupId: 'group-append',
@@ -327,12 +338,12 @@ describe('Integration: DynamoDB alarm group operations', () => {
     await addAlarmToGroup(
       resourceArn,
       'group-append',
-      makeAlarm({ resourceArn, alarmId: 'a2', alarmName: 'A2' })
+      makeAlarm({ ...withResourceId(resourceArn), alarmId: 'a2', alarmName: 'A2' })
     );
     await addAlarmToGroup(
       resourceArn,
       'group-append',
-      makeAlarm({ resourceArn, alarmId: 'a3', alarmName: 'A3' })
+      makeAlarm({ ...withResourceId(resourceArn), alarmId: 'a3', alarmName: 'A3' })
     );
 
     const result = await findActiveAlarmGroup(
@@ -351,7 +362,7 @@ describe('Integration: DynamoDB alarm group operations', () => {
     await createAlarmGroup({
       resourceArn: arnA,
       groupId: 'group-a',
-      alarms: [makeAlarm({ resourceArn: arnA })],
+      alarms: [makeAlarm(withResourceId(arnA))],
       windowStart: '2024-01-01T00:00:00.000Z',
       windowEnd: '2024-01-01T00:02:00.000Z',
       status: 'collecting',
@@ -360,7 +371,7 @@ describe('Integration: DynamoDB alarm group operations', () => {
     await createAlarmGroup({
       resourceArn: arnB,
       groupId: 'group-b',
-      alarms: [makeAlarm({ resourceArn: arnB })],
+      alarms: [makeAlarm(withResourceId(arnB))],
       windowStart: '2024-01-01T00:00:00.000Z',
       windowEnd: '2024-01-01T00:02:00.000Z',
       status: 'collecting',

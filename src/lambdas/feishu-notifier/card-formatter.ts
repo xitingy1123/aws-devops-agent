@@ -200,71 +200,18 @@ function alarmsSection(report: RCAReport): string {
     const threshold = Number.isFinite(a.threshold) ? a.threshold : '?';
     return `- **${escapeMd(a.alarmName)}**（${a.namespace}/${a.metricName}） 当前值 ${value} / 阈值 ${threshold}`;
   });
-  return `**📋 告警概要**\n${lines.join('\n')}\n\n首次告警：${report.alarmSummary.firstAlarmTime}\n最近告警：${report.alarmSummary.lastAlarmTime}`;
-}
-
-function affectedResourcesLine(report: RCAReport): string {
   const resources = report.rootCause.affectedResources.length > 0
     ? report.rootCause.affectedResources.map((r) => `- \`${r}\``).join('\n')
     : '- 未识别';
-  return `**🎯 受影响资源**\n${resources}`;
-}
-
-// -----------------------------------------------------------------------------
-// 控制台 Tab 1: Investigation timeline
-//   汇总: Impact、Key findings（按时间线排列）、Hypotheses（探索过的假设）
-// -----------------------------------------------------------------------------
-
-function investigationTimelineSection(report: RCAReport): string {
-  const parts: string[] = ['**🕐 Investigation timeline（调查过程）**'];
-
-  // 1) Impact 摘要
-  if (report.impact && report.impact.trim()) {
-    parts.push(`**💥 Impact（业务影响）**\n${sanitizeAgentText(report.impact.trim())}`);
-  }
-
-  // 2) Key findings (按时间顺序的关键发现)
-  const findings: string[] = [];
-  if (report.keyFindings && report.keyFindings.length > 0) {
-    findings.push(...report.keyFindings.map((f) => `- ${sanitizeAgentText(f)}`));
-  } else if (report.investigation.timeline.length > 0) {
-    findings.push(
-      ...report.investigation.timeline.map((t) =>
-        `- [${t.timestamp}] **${escapeMd(t.action)}**：${sanitizeAgentText(t.finding)}`
-      )
-    );
-  }
-  if (findings.length > 0) {
-    parts.push(`**🔑 Key findings（关键发现）**\n${findings.join('\n')}`);
-  }
-
-  // 3) Hypotheses (假设 + 是否成立 + 推理)
-  const hyps: string[] = [];
-  if (report.hypothesesDetailed && report.hypothesesDetailed.length > 0) {
-    for (const h of report.hypothesesDetailed) {
-      const icon = h.supported ? '✅ 成立' : '❌ 不成立';
-      const reasoning = h.reasoning ? ` — ${sanitizeAgentText(h.reasoning)}` : '';
-      hyps.push(`- ${icon}：${sanitizeAgentText(h.hypothesis)}${reasoning}`);
-    }
-  } else if (report.investigation.hypothesesExplored.length > 0) {
-    hyps.push(
-      ...report.investigation.hypothesesExplored.map((h) => `- ${sanitizeAgentText(h)}`)
-    );
-  }
-  if (hyps.length > 0) {
-    parts.push(`**🧪 Hypotheses（探索过的假设）**\n${hyps.join('\n')}`);
-  }
-
-  // 4) 数据源
-  if (report.investigation.dataSourcesConsulted.length > 0) {
-    parts.push(
-      `**📚 Data sources consulted（数据源）**\n${report.investigation.dataSourcesConsulted
-        .map((s) => `- ${s}`)
-        .join('\n')}`
-    );
-  }
-
-  return parts.join('\n\n');
+  return [
+    `**📋 告警概要**`,
+    lines.join('\n'),
+    `首次告警：${report.alarmSummary.firstAlarmTime}`,
+    `最近告警：${report.alarmSummary.lastAlarmTime}`,
+    ``,
+    `**🎯 受影响资源**`,
+    resources,
+  ].join('\n');
 }
 
 // -----------------------------------------------------------------------------
@@ -286,15 +233,13 @@ function rootCauseSection(report: RCAReport): string {
     parts.push(`${sanitizeAgentText(report.rootCause.summary)}${detail}`);
   }
 
-  // Category + confidence + 受影响资源
+  // Category + confidence
   const meta: string[] = [];
   if (report.rootCause.category && report.rootCause.category !== 'unknown') {
     meta.push(`类别：\`${report.rootCause.category}\``);
   }
   meta.push(`置信度：\`${report.rootCause.confidence}\``);
   parts.push(meta.join(' · '));
-
-  parts.push(affectedResourcesLine(report));
 
   return parts.join('\n\n');
 }
@@ -418,7 +363,6 @@ function buildElements(
     : [
         statusBanner(notificationType),
         alarmsSection(report),
-        investigationTimelineSection(report),
         rootCauseSection(report),
         mitigationPlanSection(report),
       ];
@@ -468,8 +412,6 @@ export function formatPlainTextReport(
   if (banner) lines.push(banner);
   lines.push('');
   lines.push(stripMd(alarmsSection(report)));
-  lines.push('');
-  lines.push(stripMd(investigationTimelineSection(report)));
   lines.push('');
   lines.push(stripMd(rootCauseSection(report)));
   lines.push('');

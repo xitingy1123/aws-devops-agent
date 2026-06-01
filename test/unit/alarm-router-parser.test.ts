@@ -1,5 +1,5 @@
 import { parseAlarmEvent } from '../../src/lambdas/alarm-router/parser';
-import { AlarmRouterInput } from '../../src/shared/types';
+import { AlarmRouterInput, formatResourceKey } from '../../src/shared/types';
 
 /**
  * Helper to build a valid single-metric alarm event.
@@ -72,12 +72,18 @@ describe('parseAlarmEvent', () => {
       expect(result.alarmId).toBe('arn:aws:cloudwatch:us-east-1:123456789012:alarm:HighCPU');
     });
 
-    it('should build EC2 resource ARN from InstanceId dimension', () => {
+    it('should build EC2 resource identifier from InstanceId dimension', () => {
       const event = buildValidAlarmEvent();
       const result = parseAlarmEvent(event);
 
-      expect(result.resourceArn).toBe(
-        'arn:aws:ec2:us-east-1:123456789012:instance/i-1234567890abcdef0'
+      expect(result.resource).toEqual({
+        accountId: '123456789012',
+        region: 'us-east-1',
+        service: 'ec2',
+        resourceId: 'i-1234567890abcdef0',
+      });
+      expect(formatResourceKey(result.resource)).toBe(
+        '123456789012/ec2/us-east-1/i-1234567890abcdef0'
       );
     });
   });
@@ -125,7 +131,12 @@ describe('parseAlarmEvent', () => {
       expect(result.namespace).toBe('AWS/RDS');
       expect(result.metricName).toBe('ReadIOPS');
       expect(result.dimensions).toEqual({ DBInstanceIdentifier: 'my-db' });
-      expect(result.resourceArn).toBe('arn:aws:rds:us-east-1:123456789012:db:my-db');
+      expect(result.resource).toEqual({
+        accountId: '123456789012',
+        region: 'us-east-1',
+        service: 'rds',
+        resourceId: 'my-db',
+      });
     });
   });
 
@@ -156,7 +167,12 @@ describe('parseAlarmEvent', () => {
       expect(result.namespace).toBe('');
       expect(result.metricName).toBe('');
       expect(result.dimensions).toEqual({});
-      expect(result.resourceArn).toBe('');
+      // Composite alarm: no namespace, no dimensions → service & resourceId 都是空
+      expect(result.resource.service).toBe('');
+      expect(result.resource.resourceId).toBe('');
+      // accountId / region 仍来自事件本体
+      expect(result.resource.accountId).toBe('123456789012');
+      expect(result.resource.region).toBe('us-east-1');
     });
 
     it('should handle composite alarm with empty metrics array', () => {
@@ -234,8 +250,8 @@ describe('parseAlarmEvent', () => {
     });
   });
 
-  describe('resource ARN building', () => {
-    it('should build RDS ARN from DBInstanceIdentifier', () => {
+  describe('resource identifier building', () => {
+    it('should build RDS resource from DBInstanceIdentifier', () => {
       const event = buildValidAlarmEvent();
       event.detail.configuration.metrics = [
         {
@@ -254,10 +270,15 @@ describe('parseAlarmEvent', () => {
       ];
 
       const result = parseAlarmEvent(event);
-      expect(result.resourceArn).toBe('arn:aws:rds:us-east-1:123456789012:db:prod-db');
+      expect(result.resource).toEqual({
+        accountId: '123456789012',
+        region: 'us-east-1',
+        service: 'rds',
+        resourceId: 'prod-db',
+      });
     });
 
-    it('should build Lambda ARN from FunctionName', () => {
+    it('should build Lambda resource from FunctionName', () => {
       const event = buildValidAlarmEvent();
       event.detail.configuration.metrics = [
         {
@@ -276,12 +297,11 @@ describe('parseAlarmEvent', () => {
       ];
 
       const result = parseAlarmEvent(event);
-      expect(result.resourceArn).toBe(
-        'arn:aws:lambda:us-east-1:123456789012:function:my-function'
-      );
+      expect(result.resource.service).toBe('lambda');
+      expect(result.resource.resourceId).toBe('my-function');
     });
 
-    it('should build SQS ARN from QueueName', () => {
+    it('should build SQS resource from QueueName', () => {
       const event = buildValidAlarmEvent();
       event.detail.configuration.metrics = [
         {
@@ -300,10 +320,13 @@ describe('parseAlarmEvent', () => {
       ];
 
       const result = parseAlarmEvent(event);
-      expect(result.resourceArn).toBe('arn:aws:sqs:us-east-1:123456789012:my-queue');
+      expect(result.resource.service).toBe('sqs');
+      expect(result.resource.resourceId).toBe('my-queue');
     });
 
-    it('should return empty string for unknown dimension patterns', () => {
+    it('should preserve custom namespace verbatim and use first dimension value as resourceId', () => {
+      // 自定义 namespace 不再被丢弃,而是原样保留作为 service slug;
+      // 第一个维度值作为 resourceId,通用兜底所有 AWS 服务 + 业务自定义 metric。
       const event = buildValidAlarmEvent();
       event.detail.configuration.metrics = [
         {
@@ -322,7 +345,35 @@ describe('parseAlarmEvent', () => {
       ];
 
       const result = parseAlarmEvent(event);
-      expect(result.resourceArn).toBe('');
+      expect(result.resource).toEqual({
+        accountId: '123456789012',
+        region: 'us-east-1',
+        service: 'Custom/MyApp',
+        resourceId: 'prod',
+      });
+    });
+
+    it('should join multiple dimension values with / for ECS-style alarms', () => {
+      const event = buildValidAlarmEvent();
+      event.detail.configuration.metrics = [
+        {
+          id: 'm1',
+          metricStat: {
+            metric: {
+              namespace: 'AWS/ECS',
+              name: 'CPUUtilization',
+              dimensions: { ClusterName: 'prod-cluster', ServiceName: 'api-svc' },
+            },
+            period: 300,
+            stat: 'Average',
+          },
+          returnData: true,
+        },
+      ];
+
+      const result = parseAlarmEvent(event);
+      expect(result.resource.service).toBe('ecs');
+      expect(result.resource.resourceId).toBe('prod-cluster/api-svc');
     });
   });
 });

@@ -1,4 +1,4 @@
-import { AlarmRouterOutput } from '../../shared/types';
+import { AlarmRouterOutput, formatResourceKey } from '../../shared/types';
 
 /**
  * Request structure for the AWS DevOps Agent Event Response API.
@@ -7,6 +7,10 @@ export interface DevOpsAgentRequest {
   investigationType: 'alarm_response';
   context: {
     alarmArns: string[];
+    /**
+     * 字段名沿用 `resourceArns` 是因为 DevOps Agent webhook payload schema 不变；
+     * 内容已经从真正的 ARN 切换为 `accountId/service/region/resourceId` 格式。
+     */
     resourceArns: string[];
     timeRange: { start: string; end: string };
     additionalContext: string;
@@ -16,7 +20,7 @@ export interface DevOpsAgentRequest {
 /**
  * Builds the RCA context request for the AWS DevOps Agent.
  *
- * Assembles all alarm ARNs, resource ARNs, a time range covering at least
+ * Assembles all alarm ARNs, resource keys, a time range covering at least
  * 1 hour before the earliest alarm, and a descriptive additional context string.
  *
  * @param alarms - Array of parsed alarm outputs from the AlarmRouter
@@ -26,9 +30,11 @@ export function buildRCAContext(alarms: AlarmRouterOutput[]): DevOpsAgentRequest
   // 1. Collect all unique alarm ARNs
   const alarmArns = [...new Set(alarms.map((a) => a.alarmId))];
 
-  // 2. Collect all unique resource ARNs, filtering out empty strings
+  // 2. Collect all unique resource keys, filtering out empty strings
   const resourceArns = [
-    ...new Set(alarms.map((a) => a.resourceArn).filter((arn) => arn !== '')),
+    ...new Set(
+      alarms.map((a) => formatResourceKey(a.resource)).filter((s) => s !== '')
+    ),
   ];
 
   // 3. Determine time range
@@ -60,8 +66,9 @@ export function buildRCAContext(alarms: AlarmRouterOutput[]): DevOpsAgentRequest
     }
     parts.push(`Current Value: ${a.currentValue}`);
     parts.push(`Threshold: ${a.threshold}`);
-    if (a.resourceArn) {
-      parts.push(`Resource: ${a.resourceArn}`);
+    const resourceKey = formatResourceKey(a.resource);
+    if (resourceKey) {
+      parts.push(`Resource: ${resourceKey}`);
     }
     return parts.join(', ');
   });
