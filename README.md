@@ -2,7 +2,7 @@
 
 > English: [README.en.md](README.en.md)
 
-基于 AWS DevOps Agent 的 CloudWatch 告警自动根因分析系统。当 CloudWatch 告警触发时，系统自动调用 DevOps Agent 进行根因调查，生成结构化 RCA 报告，并通过飞书 Webhook 推送给团队。**调查完成后会自动触发 Mitigation Plan 生成，单独再推一张缓解方案卡片到飞书**——整个 Investigation → Mitigation 链路无需任何人工点击。同时提供飞书 Bot 对话助手，支持直接在飞书中与 DevOps Agent 交互对话以及运行和查看改进建议。
+基于 AWS DevOps Agent 的 CloudWatch 告警自动根因分析系统。当 CloudWatch 告警触发时，系统自动调用 DevOps Agent 进行根因调查，生成结构化 RCA 报告，并通过飞书 Webhook 推送给团队。调查完成后会自动触发 Mitigation Plan 生成，单独再推一张缓解方案卡片到飞书——整个 Investigation → Mitigation 链路无需任何人工点击。同时提供飞书 Bot 对话助手，支持直接在飞书中与 DevOps Agent 交互对话以及运行和查看改进建议。
 
 
 ---
@@ -47,7 +47,7 @@
 - **智能过滤**：支持 all/custom 告警选择模式，namespace/name_pattern 过滤
 - **告警聚合**：同一资源 2 分钟内的多个告警自动聚合为一次调查
 - **自动根因分析（Investigation）**：调用 AWS DevOps Agent 进行 RCA，生成结构化报告
-- **自动缓解方案（Mitigation）**：Investigation 完成后自动调用 `UpdateBacklogTask` 触发 Mitigation Plan 生成（等同于控制台 "Generate mitigation plan" 按钮），完成后**单独再发一张缓解方案飞书卡片**——无需人工点击
+- **自动缓解方案（Mitigation）**：Investigation 完成后自动调用 `UpdateBacklogTask` 触发 Mitigation Plan 生成（等同于控制台 "Generate mitigation plan" 按钮），完成后单独再发一张缓解方案飞书卡片——无需人工点击
 - **飞书通知**：每次告警链路最终发出 2 张卡片到飞书群（① 根因 + 调查时间线，② 缓解方案），支持多 Webhook 路由
 - **飞书 Bot 对话**：直接在飞书中 @机器人 与 DevOps Agent 对话；@机器人触发的调查同样会自动触发 Mitigation 并推回原对话
 - **一键部署**：全部基础设施通过 CDK 定义，`cdk deploy` 即可完成

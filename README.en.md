@@ -1,6 +1,6 @@
 # CloudWatch Alarm Auto RCA
 
-Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent. When a CloudWatch alarm fires, the system automatically invokes DevOps Agent to investigate the root cause, generates a structured RCA report, and pushes it to your team via Feishu (Lark) webhook. **Once the investigation finishes, the system automatically triggers Mitigation Plan generation and pushes a separate mitigation card to Feishu** — the entire Investigation → Mitigation flow needs zero manual clicks. A Feishu chat-bot assistant is also included so you can talk to DevOps Agent directly inside Feishu, including running and viewing improvement plans.
+Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent. When a CloudWatch alarm fires, the system automatically invokes DevOps Agent to investigate the root cause, generates a structured RCA report, and pushes it to your team via Feishu (Lark) webhook. Once the investigation finishes, the system automatically triggers Mitigation Plan generation and pushes a separate mitigation card to Feishu — the entire Investigation → Mitigation flow needs zero manual clicks. A Feishu chat-bot assistant is also included so you can talk to DevOps Agent directly inside Feishu, including running and viewing improvement plans.
 
 > 中文版本: [README.md](README.md)
 
@@ -46,7 +46,7 @@ Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent
 - **Smart filtering** — `all` / `custom` selection mode, plus namespace / name pattern rules
 - **Alarm aggregation** — Multiple alarms on the same resource within 2 minutes are merged into one investigation
 - **Automated root cause (Investigation)** — Calls AWS DevOps Agent and produces a structured report
-- **Automated mitigation (Mitigation)** — When Investigation completes, the system automatically calls `UpdateBacklogTask(taskStatus='PENDING_START')` (equivalent to clicking the console "Generate mitigation plan" button) and **delivers a second Feishu card** with the mitigation steps once it's ready — no manual action needed
+- **Automated mitigation (Mitigation)** — When Investigation completes, the system automatically calls `UpdateBacklogTask(taskStatus='PENDING_START')` (equivalent to clicking the console "Generate mitigation plan" button) and delivers a second Feishu card with the mitigation steps once it's ready — no manual action needed
 - **Feishu notification** — Each alarm pipeline ultimately delivers **2 cards** to the group (① root cause + investigation timeline, ② mitigation plan), with multi-webhook routing
 - **Feishu chat-bot** — `@`-mention the bot in Feishu to talk to DevOps Agent; chat-initiated investigations follow the same auto-mitigation flow and the second card lands back in the original chat
 - **One-click deploy** — Everything defined in CDK, `cdk deploy` is enough
