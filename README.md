@@ -2,7 +2,7 @@
 
 > English: [README.en.md](README.en.md)
 
-基于 AWS DevOps Agent 的 CloudWatch 告警自动根因分析系统。当 CloudWatch 告警触发时，系统自动调用 DevOps Agent 进行根因调查，生成结构化 RCA 报告，并通过飞书 Webhook 推送给团队。同时提供飞书 Bot 对话助手，支持直接在飞书中与 DevOps Agent 交互对话以及运行和查看改进建议。
+基于 AWS DevOps Agent 的 CloudWatch 告警自动根因分析系统。当 CloudWatch 告警触发时，系统自动调用 DevOps Agent 进行根因调查，生成结构化 RCA 报告，并通过飞书 Webhook 推送给团队。**调查完成后会自动触发 Mitigation Plan 生成，单独再推一张缓解方案卡片到飞书**——整个 Investigation → Mitigation 链路无需任何人工点击。同时提供飞书 Bot 对话助手，支持直接在飞书中与 DevOps Agent 交互对话以及运行和查看改进建议。
 
 
 ---
@@ -10,16 +10,25 @@
 ## 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        告警自动处理链路                                │
-│                                                                     │
-│  CloudWatch Alarm ──→ EventBridge ──→ Step Functions ──→ Lambda     │
-│       (ALARM)           (规则匹配)       (工作流编排)      (处理逻辑)   │
-│                                                                     │
-│  Lambda 链路:                                                        │
-│  AlarmRouter → AlarmGrouper → RCAAnalyzer → FeishuNotifier          │
-│  (解析过滤)     (告警聚合)     (调用Agent)    (飞书通知)               │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        告警自动处理链路（Phase 1 + Phase 2）                  │
+│                                                                             │
+│  CloudWatch Alarm ──→ EventBridge ──→ Step Functions ──→ Lambda             │
+│       (ALARM)           (规则匹配)       (工作流编排)      (处理逻辑)           │
+│                                                                             │
+│  Lambda 链路（Phase 1 - Investigation）:                                     │
+│  AlarmRouter → AlarmGrouper → RCAAnalyzer → [DevOps Agent 调查] → FeishuNotifier
+│  (解析过滤)     (告警聚合)     (调用 Agent)                          (① 根因卡片)
+│                                                                             │
+│  Lambda 链路（Phase 2 - Mitigation, 自动触发）:                              │
+│  EventBridge `Investigation Completed`                                      │
+│        ↓                                                                    │
+│  InvestigationEventHandler ──[UpdateBacklogTask: PENDING_START]──→ Agent    │
+│        ↓                                                                    │
+│  EventBridge `Mitigation Completed`                                         │
+│        ↓                                                                    │
+│  InvestigationEventHandler ──→ FeishuNotifier (② 缓解方案卡片)              │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      飞书 Bot 对话助手 (Lambda + API Gateway)         │
@@ -37,9 +46,10 @@
 - **自动告警捕获**：EventBridge 规则自动捕获 CloudWatch 告警状态变化
 - **智能过滤**：支持 all/custom 告警选择模式，namespace/name_pattern 过滤
 - **告警聚合**：同一资源 2 分钟内的多个告警自动聚合为一次调查
-- **自动根因分析**：调用 AWS DevOps Agent 进行 RCA，生成结构化报告
-- **飞书通知**：RCA 结果以交互式卡片推送到飞书群，支持多 Webhook 路由
-- **飞书 Bot 对话**：直接在飞书中 @机器人 与 DevOps Agent 对话
+- **自动根因分析（Investigation）**：调用 AWS DevOps Agent 进行 RCA，生成结构化报告
+- **自动缓解方案（Mitigation）**：Investigation 完成后自动调用 `UpdateBacklogTask` 触发 Mitigation Plan 生成（等同于控制台 "Generate mitigation plan" 按钮），完成后**单独再发一张缓解方案飞书卡片**——无需人工点击
+- **飞书通知**：每次告警链路最终发出 2 张卡片到飞书群（① 根因 + 调查时间线，② 缓解方案），支持多 Webhook 路由
+- **飞书 Bot 对话**：直接在飞书中 @机器人 与 DevOps Agent 对话；@机器人触发的调查同样会自动触发 Mitigation 并推回原对话
 - **一键部署**：全部基础设施通过 CDK 定义，`cdk deploy` 即可完成
 - **配置热加载**：SSM Parameter Store 管理配置，5 分钟自动刷新
 
@@ -227,14 +237,17 @@ aws cloudwatch set-alarm-state \
 | WorkflowExecutionTable | DynamoDB | 工作流执行记录 |
 | AlarmGroupTable | DynamoDB | 告警聚合组 |
 | DeadLetterNotificationTable | DynamoDB | 未发送通知死信 |
+| ChatInvestigationMappingTable | DynamoDB | 飞书 chat → DevOps Agent taskId 映射（chat-initiated 调查回推用） |
 | AlarmRouterFunction | Lambda | 告警解析与过滤 |
 | AlarmGrouperFunction | Lambda | 告警聚合 |
-| RCAAnalyzerFunction | Lambda | 调用 DevOps Agent |
-| FeishuNotifierFunction | Lambda | 飞书通知 |
+| RCAAnalyzerFunction | Lambda | 调用 DevOps Agent 启动 Investigation |
+| InvestigationEventHandlerFunction | Lambda | 接 EventBridge `Investigation*/Mitigation*` 事件：唤醒 SFN、**自动触发 Mitigation 生成**、发送 Phase-2 卡片 |
+| FeishuNotifierFunction | Lambda | 飞书通知（Phase-1 / Phase-2 卡片均经由它） |
 | FeishuBotFunction | Lambda | 飞书 Bot 对话（可选） |
 | FeishuBotApi | API Gateway | 飞书事件回调端点（可选） |
-| AlarmRCAWorkflow | Step Functions | 工作流编排 |
+| AlarmRCAWorkflow | Step Functions | 工作流编排（仅承载 Phase 1，Phase 2 由 EventBridge 直接驱动） |
 | CloudWatchAlarmRule | EventBridge | 告警事件捕获 |
+| DevOpsAgentInvestigationRule | EventBridge | 捕获 `aws.aidevops` 的 Investigation/Mitigation 终态事件 |
 | SystemConfig | SSM Parameter | 系统配置 |
 | WorkflowFailureAlarm | CloudWatch Alarm | 系统健康监控 |
 | NotificationFailureAlarm | CloudWatch Alarm | 通知失败监控 |
@@ -279,18 +292,33 @@ aws cloudwatch set-alarm-state \
 
 ## 使用方式
 共有以下三个功能：
-- Cloudwatch告警自动触发DevopsAgent生成RCA并推送至飞书；
+- Cloudwatch告警自动触发DevopsAgent生成RCA并推送至飞书（包含自动 Mitigation Plan）；
 - 在飞书里直接和Devops Agent 对话
 - 在飞书里运行改善计划（Improvement Plan）
 
-### 自动告警 RCA
+### 自动告警 RCA（双阶段：Investigation + Mitigation）
 
-无需操作。任何 CloudWatch 告警触发 ALARM 状态时，系统自动：
-1. 解析告警事件
-2. 应用过滤规则
-3. 聚合同资源告警
-4. 调用 DevOps Agent 分析根因
-5. 将 RCA 报告以飞书卡片推送到群聊
+无需任何人工操作。任何 CloudWatch 告警进入 ALARM 状态后，系统会**自动**完成两阶段全流程：
+
+**Phase 1 — Investigation（根因调查）**
+
+1. EventBridge 捕获 ALARM state change
+2. AlarmRouter 解析 + 过滤
+3. AlarmGrouper 聚合同资源告警（2 分钟窗口）
+4. RCAAnalyzer 调用 DevOps Agent 启动 Investigation
+5. Agent 完成调查后发出 `Investigation Completed` 事件
+6. **① 飞书卡片**推送：根因 + 调查时间线
+
+**Phase 2 — Mitigation（缓解方案，自动）** *无需点击"生成 mitigation plan"按钮*
+
+7. InvestigationEventHandler 收到 `Investigation Completed` 事件后，自动调用 `UpdateBacklogTask(taskStatus='PENDING_START')` —— 等价于控制台手动按下「Generate mitigation plan」
+8. Agent 完成 Mitigation 后发出 `Mitigation Completed` 事件
+9. InvestigationEventHandler async-invoke FeishuNotifier
+10. **② 飞书卡片**推送：缓解步骤 + 命令
+
+> 一次告警 → 飞书群最终收到 **2 张卡片**，间隔通常 1-3 分钟（由 Agent 生成 mitigation 的时长决定）。如果 Investigation 是 Failed/TimedOut/Cancelled/Skipped 等非 Completed 终态，**不会**进入 Phase 2，只发 1 张卡片。
+>
+> 飞书 Bot 中 `@机器人` 触发的 chat-initiated 调查走同一套自动 Mitigation 逻辑，第二张卡片会推回原对话。
 
 
 
@@ -456,6 +484,46 @@ curl -s -X POST "<your-webhook-url>" \
 ```
 
 `Feishu webhook response` 日志会显示飞书返回的完整 body（包括 `code` 和 `msg`）。如果 `code=0 msg=success` 但群里没收到，多半是机器人被移出群了。
+
+### 只收到第一张卡片（根因），没收到第二张（Mitigation）
+
+Phase 2 是由 InvestigationEventHandler 在收到 `Investigation Completed` 事件后**自动**触发 `UpdateBacklogTask` 完成的。如果第二张卡片始终没来，按这个顺序查：
+
+```bash
+# 1. 找到 InvestigationEventHandler Lambda 函数名
+HANDLER_FN=$(aws lambda list-functions --region us-east-1 \
+  --query "Functions[?contains(FunctionName, 'InvestigationEventHandler')].FunctionName | [0]" \
+  --output text)
+echo "$HANDLER_FN"
+
+# 2. 看是否成功调起了 mitigation generation
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"Mitigation generation triggered"'
+
+# 3. 如果触发失败，看错误（常见：DevOps Agent 权限不足、taskId 已过期）
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"triggerMitigationGeneration failed"'
+
+# 4. 看 EventBridge 是否实际发出了 Mitigation Completed 事件
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"Mitigation"'
+
+# 5. 看自定义指标 MitigationTriggered / MitigationTriggerFailed
+aws cloudwatch get-metric-statistics --region us-east-1 \
+  --namespace CloudWatchAlarmAutoRCA \
+  --metric-name MitigationTriggered \
+  --start-time "$(date -u -v-1H +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S)" \
+  --end-time "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+  --period 300 --statistics Sum
+```
+
+常见原因：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `Mitigation generation triggered` 日志没出现 | Investigation 终态不是 `Completed`（而是 Failed/TimedOut/Cancelled），按设计不会进 Phase 2 | 正常行为 |
+| `triggerMitigationGeneration failed` 含 `AccessDenied` | Lambda 缺 `aiops:UpdateBacklogTask` 权限 | 重新 `cdk deploy` |
+| 触发成功但卡片不来（>10 分钟） | Mitigation 在 Agent 侧仍在运行，或失败但事件未发出 | 在 DevOps Agent 控制台找对应 task 看 status |
 
 ### 改了 SSM 配置但 Lambda 没立即生效
 

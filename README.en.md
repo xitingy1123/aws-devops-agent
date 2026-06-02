@@ -1,6 +1,6 @@
 # CloudWatch Alarm Auto RCA
 
-Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent. When a CloudWatch alarm fires, the system automatically invokes DevOps Agent to investigate the root cause, generates a structured RCA report, and pushes it to your team via Feishu (Lark) webhook. A Feishu chat-bot assistant is also included so you can talk to DevOps Agent directly inside Feishu.
+Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent. When a CloudWatch alarm fires, the system automatically invokes DevOps Agent to investigate the root cause, generates a structured RCA report, and pushes it to your team via Feishu (Lark) webhook. **Once the investigation finishes, the system automatically triggers Mitigation Plan generation and pushes a separate mitigation card to Feishu** — the entire Investigation → Mitigation flow needs zero manual clicks. A Feishu chat-bot assistant is also included so you can talk to DevOps Agent directly inside Feishu, including running and viewing improvement plans.
 
 > 中文版本: [README.md](README.md)
 
@@ -9,16 +9,25 @@ Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Automated Alarm Pipeline                         │
-│                                                                     │
-│  CloudWatch Alarm ──→ EventBridge ──→ Step Functions ──→ Lambda     │
-│       (ALARM)         (rule match)    (orchestration)   (handlers)  │
-│                                                                     │
-│  Lambda chain:                                                       │
-│  AlarmRouter → AlarmGrouper → RCAAnalyzer → FeishuNotifier          │
-│  (parse+filter) (aggregate)   (call Agent)  (push card)              │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                Automated Alarm Pipeline (Phase 1 + Phase 2)                 │
+│                                                                             │
+│  CloudWatch Alarm ──→ EventBridge ──→ Step Functions ──→ Lambda             │
+│       (ALARM)         (rule match)    (orchestration)   (handlers)          │
+│                                                                             │
+│  Lambda chain (Phase 1 — Investigation):                                    │
+│  AlarmRouter → AlarmGrouper → RCAAnalyzer → [DevOps Agent] → FeishuNotifier │
+│  (parse+filter) (aggregate)   (call Agent)                   (① root-cause card)
+│                                                                             │
+│  Lambda chain (Phase 2 — Mitigation, auto-triggered):                       │
+│  EventBridge `Investigation Completed`                                      │
+│        ↓                                                                    │
+│  InvestigationEventHandler ──[UpdateBacklogTask: PENDING_START]──→ Agent    │
+│        ↓                                                                    │
+│  EventBridge `Mitigation Completed`                                         │
+│        ↓                                                                    │
+│  InvestigationEventHandler ──→ FeishuNotifier (② mitigation card)           │
+└─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────┐
 │              Feishu Chat-Bot Assistant (Lambda + API Gateway)       │
@@ -36,9 +45,10 @@ Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent
 - **Automatic alarm capture** — EventBridge rule catches every CloudWatch alarm state change
 - **Smart filtering** — `all` / `custom` selection mode, plus namespace / name pattern rules
 - **Alarm aggregation** — Multiple alarms on the same resource within 2 minutes are merged into one investigation
-- **Automated RCA** — Calls AWS DevOps Agent and produces a structured report
-- **Feishu notification** — Delivers RCA results as interactive cards, with multi-webhook routing
-- **Feishu chat-bot** — `@`-mention the bot in Feishu to talk to DevOps Agent
+- **Automated root cause (Investigation)** — Calls AWS DevOps Agent and produces a structured report
+- **Automated mitigation (Mitigation)** — When Investigation completes, the system automatically calls `UpdateBacklogTask(taskStatus='PENDING_START')` (equivalent to clicking the console "Generate mitigation plan" button) and **delivers a second Feishu card** with the mitigation steps once it's ready — no manual action needed
+- **Feishu notification** — Each alarm pipeline ultimately delivers **2 cards** to the group (① root cause + investigation timeline, ② mitigation plan), with multi-webhook routing
+- **Feishu chat-bot** — `@`-mention the bot in Feishu to talk to DevOps Agent; chat-initiated investigations follow the same auto-mitigation flow and the second card lands back in the original chat
 - **One-click deploy** — Everything defined in CDK, `cdk deploy` is enough
 - **Hot-reload config** — Configuration in SSM Parameter Store, refreshed every 5 minutes
 
@@ -220,16 +230,17 @@ aws cloudwatch set-alarm-state \
 | WorkflowExecutionTable | DynamoDB | Workflow execution records |
 | AlarmGroupTable | DynamoDB | Alarm aggregation groups |
 | DeadLetterNotificationTable | DynamoDB | Failed-notification dead-letter |
+| ChatInvestigationMappingTable | DynamoDB | Maps Feishu chat → DevOps Agent taskId for chat-initiated investigations |
 | AlarmRouterFunction | Lambda | Parse + filter alarms |
 | AlarmGrouperFunction | Lambda | Aggregate alarms |
-| RCAAnalyzerFunction | Lambda | Trigger DevOps Agent |
-| FeishuNotifierFunction | Lambda | Render and deliver Feishu cards |
+| RCAAnalyzerFunction | Lambda | Trigger DevOps Agent Investigation |
+| InvestigationEventHandlerFunction | Lambda | Handles `aws.aidevops` Investigation*/Mitigation* events: resumes SFN, **auto-triggers Mitigation generation**, dispatches phase-2 card |
+| FeishuNotifierFunction | Lambda | Renders and delivers Feishu cards (both phase-1 and phase-2) |
 | FeishuBotFunction | Lambda | Feishu chat bot (optional) |
 | FeishuBotApi | API Gateway | Feishu event callback endpoint (optional) |
-| InvestigationEventHandlerFunction | Lambda | Resume SFN on `aws.aidevops` events; trigger / render mitigation card |
-| AlarmRCAWorkflow | Step Functions | Workflow orchestration (waitForTaskToken) |
+| AlarmRCAWorkflow | Step Functions | Workflow orchestration (carries phase 1 only; phase 2 is driven directly by EventBridge) |
 | CloudWatchAlarmRule | EventBridge | Capture CloudWatch alarm events |
-| DevOpsAgentInvestigationRule | EventBridge | Capture `aws.aidevops` Investigation* / Mitigation* events |
+| DevOpsAgentInvestigationRule | EventBridge | Capture `aws.aidevops` Investigation*/Mitigation* terminal events |
 | SystemConfig | SSM Parameter | System config |
 | WorkflowFailureAlarm | CloudWatch Alarm | Self-monitoring |
 | NotificationFailureAlarm | CloudWatch Alarm | Notification failure monitoring |
@@ -274,15 +285,35 @@ Path: `/cloudwatch-alarm-auto-rca/config`
 
 ## Usage
 
-### Automated alarm RCA
+The project ships three capabilities:
 
-Nothing to do. Whenever any CloudWatch alarm transitions to `ALARM`, the system automatically:
+- CloudWatch alarms automatically trigger DevOps Agent to produce an RCA and push it to Feishu (with auto-generated Mitigation Plan)
+- Chat with DevOps Agent directly in Feishu
+- Run the Improvement Plan inside Feishu
 
-1. Parses the alarm event
-2. Applies filtering rules
-3. Aggregates same-resource alarms within the window
-4. Calls DevOps Agent to investigate the root cause
-5. Pushes the RCA report as a Feishu interactive card
+### Automated alarm RCA (two phases: Investigation + Mitigation)
+
+Zero manual steps. The moment any CloudWatch alarm enters `ALARM`, the system runs the full two-phase pipeline automatically:
+
+**Phase 1 — Investigation (root cause analysis)**
+
+1. EventBridge captures the ALARM state change
+2. AlarmRouter parses + filters
+3. AlarmGrouper aggregates same-resource alarms (2-minute window)
+4. RCAAnalyzer calls DevOps Agent to start the Investigation
+5. The Agent emits an `Investigation Completed` event when done
+6. **Card ① delivered**: root cause + investigation timeline
+
+**Phase 2 — Mitigation (auto-triggered, no manual click)**
+
+7. After receiving `Investigation Completed`, InvestigationEventHandler automatically calls `UpdateBacklogTask(taskStatus='PENDING_START')` — equivalent to clicking "Generate mitigation plan" in the console
+8. The Agent emits `Mitigation Completed` when done
+9. InvestigationEventHandler async-invokes FeishuNotifier
+10. **Card ② delivered**: mitigation steps + commands
+
+> Each alarm ultimately delivers **2 cards** to the Feishu group, typically 1–3 minutes apart (depends on Agent's mitigation generation time). If Investigation ends in any non-Completed terminal state (Failed/TimedOut/Cancelled/Skipped), Phase 2 is skipped and only **1 card** is sent.
+>
+> Chat-initiated investigations (`@`-mention the bot in Feishu) follow the exact same auto-mitigation flow; the second card lands back in the original chat.
 
 ### Choose which alarms trigger RCA (no redeploy required)
 
@@ -385,6 +416,167 @@ Or look at the CloudWatch custom metric `CloudWatchAlarmAutoRCA / AlarmsFiltered
 ```
 
 Multi-turn conversation is supported — the bot keeps context.
+
+#### Run the Improvement Plan in Feishu
+
+The bot can run a fresh "improvement plan" right from a group — based on the INVESTIGATION tasks completed inside the Agent Space, it analyzes recent ops events and produces new improvement recommendations. **Trigger flow: send a keyword to summon the menu card → click "🚀 Run improvement plan"**.
+
+**Step 1 — Summon the menu card**
+
+`@`-mention the bot with any of the following keywords (the **whole message** must be the keyword, leading/trailing spaces ignored, case-insensitive):
+
+- `改善计划`
+- `改进建议`
+- `improvements`
+- `improvement`
+
+For example:
+
+```
+@DevOps Agent improvements
+@DevOps Agent 改善计划
+```
+
+The bot replies with a card containing two buttons:
+
+- 🚀 **Run improvement plan** — calls `CreateBacklogTask({ taskType: 'EVALUATION' })` against the first ACTIVE goal in your Agent Space, polls until completion, and posts the new recommendations back to the group as a text message. Roughly 30 s – 2 min.
+- 🔍 **Show recommendations** — lists every existing improvement recommendation already stored in the Agent Space (no new task created).
+
+**Step 2 — Just click**
+
+> ⚠️ Improvement Plan tasks **require at least one completed INVESTIGATION in the recent window**. If no incident investigation has been triggered recently, you'll see "Improvement plan cannot start — there must be a completed INVESTIGATION task first". Wait for an alarm to drive an automatic RCA, or ask the Agent to investigate something in chat, then try again.
+
+**Notes**
+
+- The keyword must match the **whole message strictly**. Embedding it in a longer sentence ("I want to see the improvement plan") will not summon the menu — it falls through to the regular Q&A path. To trigger it inside a longer conversation, just send the keyword as its own message.
+
+---
+
+## Troubleshooting / Debugging
+
+### Feishu group never receives the RCA card
+
+Check in order:
+
+```bash
+# 1. Make sure feishuWebhooks is non-empty in SSM config
+aws ssm get-parameter --region us-east-1 --name /cloudwatch-alarm-auto-rca/config \
+  --query 'Parameter.Value' --output text | jq .feishuWebhooks
+
+# 2. Look at the Feishu API response captured by FeishuNotifier (logged on every send)
+aws logs tail /aws/lambda/<FeishuNotifierFunction-name> --region us-east-1 \
+  --since 30m --filter-pattern '"Feishu webhook response"'
+
+# 3. Manually curl the webhook to confirm the bot itself is still in the group
+curl -s -X POST "<your-webhook-url>" \
+  -H 'Content-Type: application/json' \
+  -d '{"msg_type":"text","content":{"text":"healthcheck"}}'
+```
+
+The `Feishu webhook response` log line includes the full body Feishu returned (including `code` and `msg`). If you see `code=0 msg=success` but the group received nothing, the most likely cause is the bot was kicked from the group.
+
+### Got the first card (root cause) but the second card (Mitigation) never arrived
+
+Phase 2 is automatically triggered by InvestigationEventHandler after it receives `Investigation Completed`, by calling `UpdateBacklogTask`. If the second card never shows up, walk through this:
+
+```bash
+# 1. Find the InvestigationEventHandler Lambda function name
+HANDLER_FN=$(aws lambda list-functions --region us-east-1 \
+  --query "Functions[?contains(FunctionName, 'InvestigationEventHandler')].FunctionName | [0]" \
+  --output text)
+echo "$HANDLER_FN"
+
+# 2. Did mitigation generation get triggered?
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"Mitigation generation triggered"'
+
+# 3. If trigger failed, look at the error (common: missing IAM perm, expired taskId)
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"triggerMitigationGeneration failed"'
+
+# 4. Did EventBridge ever emit a Mitigation Completed event?
+aws logs tail /aws/lambda/"$HANDLER_FN" --region us-east-1 --since 30m \
+  --filter-pattern '"Mitigation"'
+
+# 5. Look at the custom metrics MitigationTriggered / MitigationTriggerFailed
+aws cloudwatch get-metric-statistics --region us-east-1 \
+  --namespace CloudWatchAlarmAutoRCA \
+  --metric-name MitigationTriggered \
+  --start-time "$(date -u -v-1H +%Y-%m-%dT%H:%M:%S 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S)" \
+  --end-time "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+  --period 300 --statistics Sum
+```
+
+Common causes:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| No `Mitigation generation triggered` log line | Investigation finished in a non-`Completed` terminal state (Failed/TimedOut/Cancelled). Phase 2 is intentionally skipped. | Expected behavior |
+| `triggerMitigationGeneration failed` with `AccessDenied` | Lambda is missing `aiops:UpdateBacklogTask` | Re-run `cdk deploy` |
+| Trigger succeeded but card never arrives (>10 min) | Mitigation is still running on the Agent side, or it failed without emitting the terminal event | Find the task in the DevOps Agent console and check its status |
+
+### Changed SSM config but Lambdas still see the old values
+
+ConfigManager caches for 5 minutes. To force a cold start (and an immediate refresh), bump a Lambda env var:
+
+```bash
+ROUTER_FN=$(aws lambda list-functions --region us-east-1 \
+  --query "Functions[?starts_with(FunctionName, 'CloudwatchAlarmAutoRcaSta-AlarmRouter')].FunctionName | [0]" \
+  --output text)
+ENV_VARS=$(aws lambda get-function-configuration --region us-east-1 \
+  --function-name "$ROUTER_FN" --query 'Environment.Variables' --output json \
+  | jq --arg n "$(date +%s)" '. + {CONFIG_NONCE:$n}' \
+  | jq -r 'to_entries | map("\(.key)=\(.value)") | join(",")')
+aws lambda update-function-configuration --region us-east-1 \
+  --function-name "$ROUTER_FN" --environment "Variables={$ENV_VARS}"
+```
+
+> ⚠️ Single-line JSON in shell easily picks up smart quotes. When updating SSM config, write the JSON to a file and pass it with `--value "$(cat config.json)"` — that avoids smart quotes from your editor leaking into the command.
+
+### Trace which Step Functions path was taken
+
+A `SUCCEEDED` execution doesn't necessarily mean "Feishu received the card" — the alarm may have been filtered out at AlarmRouter and routed through `RecordFiltered`, which also yields SUCCEEDED but never sends a card.
+
+```bash
+EXEC_ARN=$(aws stepfunctions list-executions \
+  --state-machine-arn arn:aws:states:us-east-1:<account>:stateMachine:AlarmRCAWorkflow... \
+  --max-results 1 --region us-east-1 --query 'executions[0].executionArn' --output text)
+aws stepfunctions get-execution-history --execution-arn "$EXEC_ARN" --region us-east-1 \
+  --query 'events[?type==`PassStateEntered` || type==`TaskStateEntered`].stateEnteredEventDetails.name' \
+  --output text
+```
+
+- Full happy path: `InvokeAlarmRouter → InvokeAlarmGrouper → InvokeRCAAnalyzer → InvokeFeishuNotifierComplete → RecordSuccess`
+- Filtered out: `InvokeAlarmRouter → RecordFiltered` (finishes in seconds, no card sent)
+
+---
+
+## Stress test scripts
+
+`scripts/stress-tests/` ships three **real stress test scripts** covering three different AWS services. They use real workloads to produce real metrics so the alarms naturally enter `ALARM` — no mocks, no `set-alarm-state` flips, no fake `put-metric-data`.
+
+| Script | Service | How it stresses | Metric |
+|---|---|---|---|
+| `01-ec2-cpu-stress.sh` | EC2 | Runs `stress-ng` over SSM to peg CPU | `AWS/EC2 CPUUtilization` |
+| `02-lambda-errors-stress.sh` | Lambda | Deploys a Lambda that throws, invokes it 3 times | `AWS/Lambda Errors` |
+| `03-s3-4xx-stress.sh` | S3 | Repeatedly GETs nonexistent keys (NoSuchKey 4xx) | `AWS/S3 4xxErrors` |
+
+```bash
+# EC2 (run directly; assumes alarm "EC2-HighCPU-Test" + a target instance exist)
+./scripts/stress-tests/01-ec2-cpu-stress.sh 5     # stress for 5 minutes
+
+# Lambda (setup → stress → cleanup)
+./scripts/stress-tests/02-lambda-errors-stress.sh setup
+./scripts/stress-tests/02-lambda-errors-stress.sh stress
+./scripts/stress-tests/02-lambda-errors-stress.sh cleanup
+
+# S3 (same pattern; note Request Metrics has ~15min reporting lag after enable)
+./scripts/stress-tests/03-s3-4xx-stress.sh setup
+./scripts/stress-tests/03-s3-4xx-stress.sh stress
+./scripts/stress-tests/03-s3-4xx-stress.sh cleanup
+```
+
+Details: [scripts/stress-tests/README.md](scripts/stress-tests/README.md)
 
 ---
 
