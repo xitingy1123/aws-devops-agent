@@ -1,4 +1,4 @@
-# CloudWatch Alarm Auto RCA
+# AWS DevOps Agent: Auto-Investigate & Chat
 
 Automated root cause analysis for CloudWatch alarms, powered by AWS DevOps Agent. When a CloudWatch alarm fires, the system automatically invokes DevOps Agent to investigate the root cause, generates a structured RCA report, and pushes it to your team via Feishu (Lark) webhook. Once the investigation finishes, the system automatically triggers Mitigation Plan generation and pushes a separate mitigation card to Feishu — the entire Investigation → Mitigation flow needs zero manual clicks. A Feishu chat-bot assistant is also included so you can talk to DevOps Agent directly inside Feishu, including running and viewing improvement plans.
 
