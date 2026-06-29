@@ -1,4 +1,4 @@
-# CloudWatch Alarm Auto RCA
+# DevOps Agent: Auto-Investigate & Chat
 
 > English: [README.en.md](README.en.md)
 
