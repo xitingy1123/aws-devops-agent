@@ -1,4 +1,4 @@
-# DevOps Agent: Auto-Investigate & Chat
+# AWS DevOps Agent: Auto-Investigate & Chat
 
 > English: [README.en.md](README.en.md)
 
